@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>radar_launch</name>
+  <version>2.1.0</version>
+  <description>Launchfiles for radar</description>>
+  <author>Philipp Berthold</author>
+  <maintainer email="philipp.berthold@unibw.de">phbe</maintainer>
+  <license>BSD</license>
+
+</package>

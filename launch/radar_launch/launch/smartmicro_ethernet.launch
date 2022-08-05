@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Launch configuration (live or bag playing) -->
+    <arg name="live" default="true" />
+
+    <!-- declare further arguments with default values -->
+    <arg name="ns_ethernet_bridge" default="bus/smartmicro/eth_measurements"/>
+    <arg name="ns_driver" default="sensor/radar/smartmicro"/>
+    <arg name="topic_marker" default="/visualization/sensor/radar/smartmicro/detections"/>
+
+    <group ns="$(arg ns_driver)">
+        <!-- ethernet bridge -->
+        <node pkg="ethernet_bridge" type="udp" name="ethernet_bridge" if="$(arg live)">
+            <param name="ethernet_bindAddress" value="0.0.0.0"/>
+            <param name="ethernet_bindPort" value="55555"/>
+            <param name="topic_busToHost"       value="/$(arg ns_ethernet_bridge)/bus_to_host" />
+            <param name="topic_hostToBus"       value="/$(arg ns_ethernet_bridge)/host_to_bus" />
+            <param name="topic_event"           value="/$(arg ns_ethernet_bridge)/event" />
+        </node>
+
+        <!-- driver -->
+        <node pkg="smartmicro_driver" type="ethernet" name="driver">
+            <param name="topic_ethernetInput" value="/$(arg ns_ethernet_bridge)/bus_to_host"/>
+            <param name="topic_ethernetOutput" value="/$(arg ns_ethernet_bridge)/host_to_bus"/>
+            <param name="topic_detectionsOutput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_instructionsRequest" value="/$(arg ns_driver)/instructions/request"/>
+            <param name="topic_instructionsResponse" value="/$(arg ns_driver)/instructions/response"/>
+            <param name="frame_sensor" value="$(arg ns_driver)"/>
+        </node>
+
+        <!-- smartmicro configuration tool -->
+        <node pkg="smartmicro_configurator" type="configurator" name="configurator">
+            <param name="topic_detectionsInput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_instructionsResponseInput" value="/$(arg ns_driver)/instructions/response"/>
+            <param name="topic_instructionsRequestOutput" value="/$(arg ns_driver)/instructions/request"/>
+        </node>
+
+        <!-- visualize detections with ROS markers -->
+        <node pkg="radar_marker" type="detections" name="detections_to_marker">
+            <param name="topic_detectionsInput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
+            <param name="topic_markerOutput" value="$(arg topic_marker)"/>
+        </node>
+
+        <!-- simple example TF for the initial sensor IP 192.168.11.11 -->
+        <node pkg="tf" type="static_transform_publisher" name="tf_11"
+          args="0 0.0 0.0 0 0 0 base_link $(arg ns_driver)/11 100"
+        />
+    </group>
+
+</launch>

@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>smartmicro_driver</name>
+  <version>2.1.0</version>
+  <description>Smartmicro Systems (SMS) driver for sensors based on the "High Performance Sensors Firmware"</description>
+  <author>Philipp Berthold</author>
+  <maintainer email="philipp.berthold@unibw.de">phbe</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>can_msgs</depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>radar_msgs</build_depend>  
+  <build_depend>message_generation</build_depend>
+  <build_export_depend>std_msgs</build_export_depend>
+  <build_export_depend>ethernet_msgs</build_export_depend>
+  <build_export_depend>radar_msgs</build_export_depend>
+  <build_export_depend>message_generation</build_export_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>ethernet_msgs</exec_depend>
+  <exec_depend>radar_msgs</exec_depend>
+  <exec_depend>message_generation</exec_depend>
+
+</package>
+
