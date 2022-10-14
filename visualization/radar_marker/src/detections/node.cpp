@@ -1,39 +1,23 @@
 // HSDF, Philipp Berthold, philipp.berthold@unibw.de
 
 #include "node.h"
-#include <visualization_msgs/Marker.h>
-#include <tf/transform_datatypes.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 
-#define DEBUG if(0) ROS_INFO
+namespace radar_marker {
 
-
-Node::Node(ros::NodeHandle& node_handle) : ros_handle_(node_handle), tfListener(tfBuffer)
+Converter::Converter(const std::string& name) : Node(name), tfBuffer(this->get_clock()), tfListener(tfBuffer)
 {
-    /// Parameter
-    // Topics
-    node_handle.param<std::string>("topic_detectionsInput", configuration_.topic_detectionsInput, "detections");
-    node_handle.param<std::string>("topic_odometryInput", configuration_.topic_odometryInput, "odometry");      // optional, required by config_showAbsoluteDoppler
-    node_handle.param<std::string>("topic_markerOutput", configuration_.topic_markerOutput, "marker");
-
-    // Frames
-    node_handle.param<std::string>("frame_base", configuration_.frame_base, "base_link");
-
     // Config
-    node_handle.param<bool>("config_showMetaInformation", configuration_.config_showMetaInformation, false);    // warning: high marker load! only for debugging
-    node_handle.param<bool>("config_showAbsoluteDoppler", configuration_.config_showAbsoluteDoppler, false);     // requires odometry with synchronized timestamps
+    configuration_.config_showMetaInformation = this->declare_parameter<bool>("config_showMetaInformation", false);    // warning: high marker load! only for debugging
+    configuration_.config_showAbsoluteDoppler = this->declare_parameter<bool>("config_showAbsoluteDoppler", false);     // requires odometry with synchronized timestamps
 
     /// Subscribing & Publishing
-    subscriber_radarDetections_ = ros_handle_.subscribe(configuration_.topic_detectionsInput, 100, &Node::rosCallback_radarDetections, this);
-    subscriber_odometry_ = ros_handle_.subscribe(configuration_.topic_odometryInput, 100, &Node::rosCallback_odometry, this);
-    publisher_marker_ = ros_handle_.advertise<visualization_msgs::Marker>(configuration_.topic_markerOutput, 100);
+    subscriber_radarDetections_ = this->create_subscription<radar_msgs::msg::DetectionRecord>("detections", rclcpp::SensorDataQoS().keep_last(1000), std::bind(&Converter::rosCallback_radarDetections, this, std::placeholders::_1));
+    subscriber_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>("odometry", rclcpp::SensorDataQoS().keep_last(1000), std::bind(&Converter::rosCallback_odometry, this, std::placeholders::_1));
+    publisher_marker_ = this->create_publisher<visualization_msgs::msg::Marker>("detections_marker", 1000);
 
     /// Initialization
     dynamics_service_.setConfiguration(200);
-}
-
-Node::~Node()
-{
-
 }
 
 std::string computationStatusToString(DataFitting::ComputationStatus status)
@@ -62,7 +46,7 @@ std::string computationStatusToString(DataFitting::ComputationStatus status)
     }
 }
 
-void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstPtr &msg)
+void Converter::rosCallback_radarDetections(const radar_msgs::msg::DetectionRecord::ConstSharedPtr &msg)
 {
     /// Get IP/ID
     int ip = -1;
@@ -90,7 +74,7 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
         }
     }
     if (ip < 0)
-        ROS_WARN_THROTTLE(1000, "Could not parse sensor IP in frame_id %s", msg->header.frame_id.c_str());
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5 * 1000, "Could not parse sensor IP in frame_id %s", msg->header.frame_id.c_str());
 
     /// Compute map sensor_ip <-> marker color
     float hue = 60.0f * (ip % 5);    // in degree
@@ -110,7 +94,7 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
     }
 
     /// Generate Markers
-    visualization_msgs::Marker marker;
+    visualization_msgs::msg::Marker marker;
     marker.header.frame_id = msg->header.frame_id;
     marker.header.stamp = msg->header.stamp;
     std::string ns = ip >= 0 ? (std::string("Radar .") + std::to_string(ip)) : "unknown";
@@ -118,8 +102,8 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
 
     /// - Detections
     marker.id = 1;
-    marker.type = visualization_msgs::Marker::SPHERE_LIST;
-    marker.action = visualization_msgs::Marker::ADD;
+    marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    marker.action = visualization_msgs::msg::Marker::ADD;
     marker.frame_locked = true;
 
     marker.scale.x = 0.3;
@@ -133,14 +117,14 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
     if (configuration_.config_showAbsoluteDoppler)
     {
         // Get mounting location
-        geometry_msgs::TransformStamped transformStamped;
+        geometry_msgs::msg::TransformStamped transformStamped;
         try
         {
-            transformStamped = tfBuffer.lookupTransform("base_link", msg->header.frame_id, ros::Time(0));
+            transformStamped = tfBuffer.lookupTransform("base_link", msg->header.frame_id, rclcpp::Time(0u, RCL_ROS_TIME));
         }
         catch (tf2::TransformException &ex)
         {
-            ROS_ERROR("%s",ex.what());
+            RCLCPP_ERROR(get_logger(), "%s",ex.what());
             return;
         }
 
@@ -151,33 +135,33 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
 
         double roll; double pitch; double yaw;
 
-        tf::Quaternion q(ox, oy, oz, ow);
-        tf::Matrix3x3 p(q);
+        tf2::Quaternion q(ox, oy, oz, ow);
+        tf2::Matrix3x3 p(q);
         p.getRPY(roll, pitch, yaw);
 
         // Get dynamics
         DataFitting::ComputationStatus status;
-        DynamicsType dynamics = dynamics_service_.getValueAtTime(msg->header.stamp.toSec(), &status);
+        DynamicsType dynamics = dynamics_service_.getValueAtTime(rclcpp::Time(msg->header.stamp).seconds(), &status);
         if (status != DataFitting::ComputationStatus::interpolation)
-            ROS_WARN("data service %s, odom %lf, radar %lf", computationStatusToString(status).data(), dynamics_service_.getNewestSample().time, msg->header.stamp.toSec());
+            RCLCPP_WARN(get_logger(), "data service %s, odom %lf, radar %lf", computationStatusToString(status).data(), dynamics_service_.getNewestSample().time, rclcpp::Time(msg->header.stamp).seconds());
 
         double speed = dynamics.get(DynamicsIndex::speed);
         double yawrate = dynamics.get(DynamicsIndex::yawrate);
 
         // Doppler: calculate velocity at sensor position
-        tf::Vector3 sensor_velocity = tf::Vector3(speed - yawrate * transformStamped.transform.translation.y, yawrate * transformStamped.transform.translation.x, 0);
+        tf2::Vector3 sensor_velocity = tf2::Vector3(speed - yawrate * transformStamped.transform.translation.y, yawrate * transformStamped.transform.translation.x, 0);
         double sign = fabs(roll) > 0.2 ? -1 : +1;  // workaround 3D meas. for 2D odometries
 
         for (int i = 0; i < msg->detections.size(); i += 1)
         {
             // TODO: check if range, azimuth and __elevation__ available!
-            geometry_msgs::Point detection;
+            geometry_msgs::msg::Point detection;
             detection.x = msg->detections.at(i).range.value * cos(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             detection.y = msg->detections.at(i).range.value * sin(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             detection.z = msg->detections.at(i).range.value * sin(msg->detections.at(i).elevation.value);
 
             // Doppler: rotate velocity vector to global azimuth angle
-            tf::Vector3 velocity_compensation = sensor_velocity.rotate(tf::Vector3(0, 0, 1), -(sign*msg->detections.at(i).azimuth.value + yaw));
+            tf2::Vector3 velocity_compensation = sensor_velocity.rotate(tf2::Vector3(0, 0, 1), -(sign*msg->detections.at(i).azimuth.value + yaw));
             // - compensation is the radial component (x-direction)
             double radial_velocity_compensation = velocity_compensation.x();
             // - ego compensated range rate
@@ -186,7 +170,7 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
             if (fabs(msg->detections.at(i).radial_speed.value) > 20)
                 continue;   // SMS default radial filter
 
-            std_msgs::ColorRGBA color;
+            std_msgs::msg::ColorRGBA color;
             color.a = 1;
             if (fabs(range_rate_absolute) < (0.25 + speed * 0.2))
             {
@@ -229,7 +213,7 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
         for (int i = 0; i < msg->detections.size(); i += 1)
         {
             // TODO: check if range, azimuth and __elevation__ available!
-            geometry_msgs::Point detection;
+            geometry_msgs::msg::Point detection;
             detection.x = msg->detections.at(i).range.value * cos(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             detection.y = msg->detections.at(i).range.value * sin(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             detection.z = msg->detections.at(i).range.value * sin(msg->detections.at(i).elevation.value);
@@ -237,12 +221,12 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
             marker.points.push_back(detection);
         }
     }
-    publisher_marker_.publish( marker );
+    publisher_marker_->publish( marker );
 
     /// - Mounting location
     marker.id = 0;
     marker.ns = ns + "/S";
-    marker.type = visualization_msgs::Marker::CUBE;
+    marker.type = visualization_msgs::msg::Marker::CUBE;
     marker.scale.x = 0.1;
     marker.scale.y = 0.2;
     marker.scale.z = 0.1;
@@ -252,13 +236,13 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
     marker.color.a = 1.0;
     HSVtoRGB(marker.color.r, marker.color.g, marker.color.b, hue, saturation, lightness);
     marker.points.clear();
-    publisher_marker_.publish(marker);
+    publisher_marker_->publish(marker);
 
     /// Radial speed (raw) measurement
     marker.id = 2;
     marker.ns = ns + "/D";
-    marker.type = visualization_msgs::Marker::LINE_LIST;
-    marker.action = visualization_msgs::Marker::ADD;
+    marker.type = visualization_msgs::msg::Marker::LINE_LIST;
+    marker.action = visualization_msgs::msg::Marker::ADD;
     marker.frame_locked = true;
     marker.scale.x = 0.02;
     marker.scale.y = 0;
@@ -269,28 +253,28 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
     for (unsigned int i = 0; i < msg->detections.size(); i += 1)
     {
         // TODO: check if range, azimuth and __elevation__ available!
-        geometry_msgs::Point start;
+        geometry_msgs::msg::Point start;
         start.x = msg->detections.at(i).range.value * cos(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
         start.y = msg->detections.at(i).range.value * sin(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
         start.z = msg->detections.at(i).range.value * sin(msg->detections.at(i).elevation.value);
         marker.points.push_back(start);
 
-        geometry_msgs::Point end;
+        geometry_msgs::msg::Point end;
         double range_inOneSecond = msg->detections.at(i).range.value + msg->detections.at(i).radial_speed.value;
         end.x = range_inOneSecond * cos(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
         end.y = range_inOneSecond * sin(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
         end.z = range_inOneSecond * sin(msg->detections.at(i).elevation.value);
         marker.points.push_back(end);
     }
-    publisher_marker_.publish( marker );
+    publisher_marker_->publish( marker );
 
     /// - Meta measurement. Only use for debug purposes: high bandwidth.
     if (configuration_.config_showMetaInformation)
     {
         marker.id = 0;
         marker.ns = ns + "/I";
-        marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-        marker.action = visualization_msgs::Marker::ADD;
+        marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+        marker.action = visualization_msgs::msg::Marker::ADD;
         marker.frame_locked = true;
         marker.scale.x = 0;
         marker.scale.y = 0;
@@ -313,22 +297,22 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
             marker.pose.position.x = msg->detections.at(i).range.value * cos(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             marker.pose.position.y = msg->detections.at(i).range.value * sin(msg->detections.at(i).azimuth.value) * cos(msg->detections.at(i).elevation.value);
             marker.pose.position.z = msg->detections.at(i).range.value * sin(msg->detections.at(i).elevation.value);
-            publisher_marker_.publish( marker );
+            publisher_marker_->publish( marker );
         }
 
         // isn't there a better solution without using a memory from the last cycle of this sensor?
         for (unsigned int i = msg->detections.size(); i < msg->detections.size() + 10; i += 1)
         {
             marker.id += 1;
-            marker.action = visualization_msgs::Marker::DELETE;
-            publisher_marker_.publish( marker );
+            marker.action = visualization_msgs::msg::Marker::DELETE;
+            publisher_marker_->publish( marker );
         }
     }
 }
 
-void Node::rosCallback_odometry(const nav_msgs::Odometry::ConstPtr &msg)
+void Converter::rosCallback_odometry(const nav_msgs::msg::Odometry::ConstSharedPtr &msg)
 {
-    dynamics_service_.registerValue(DynamicsType({msg->twist.twist.linear.x,msg->twist.twist.angular.z}), msg->header.stamp.toSec());
+  dynamics_service_.registerValue(DynamicsType({msg->twist.twist.linear.x,msg->twist.twist.angular.z}), rclcpp::Time(msg->header.stamp).seconds());
 }
 
 /*! \brief Convert HSV to RGB color space
@@ -347,7 +331,7 @@ void Node::rosCallback_odometry(const nav_msgs::Odometry::ConstPtr &msg)
 
   Source: google
 */
-void Node::HSVtoRGB(float& fR, float& fG, float& fB, float& fH, float& fS, float& fV) {
+void Converter::HSVtoRGB(float& fR, float& fG, float& fB, float& fH, float& fS, float& fV) {
   float fC = fV * fS; // Chroma
   float fHPrime = fmod(fH / 60.0, 6);
   float fX = fC * (1 - fabs(fmod(fHPrime, 2) - 1));
@@ -386,4 +370,5 @@ void Node::HSVtoRGB(float& fR, float& fG, float& fB, float& fH, float& fS, float
   fR += fM;
   fG += fM;
   fB += fM;
+}
 }

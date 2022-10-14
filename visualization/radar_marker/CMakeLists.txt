@@ -1,29 +1,26 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(radar_marker)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11" CACHE STRING "" FORCE)
+if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif ()
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  std_msgs
-  visualization_msgs
-  radar_msgs
-  nav_msgs
-  datafitting
-  tf2
-  tf2_ros
-)
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(radar_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(datafitting REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
-catkin_package(
-  CATKIN_DEPENDS std_msgs radar_msgs visualization_msgs
-)
-
-include_directories(
-# include
-  ${catkin_INCLUDE_DIRS}
-)
-
-
-## Detections
 add_executable(detections src/detections/main.cpp src/detections/node.cpp)
-target_link_libraries(detections ${catkin_LIBRARIES})
+ament_target_dependencies(detections rclcpp std_msgs visualization_msgs radar_msgs nav_msgs datafitting tf2 tf2_ros)
+
+install(TARGETS
+    detections
+    DESTINATION lib/${PROJECT_NAME})
+
+ament_package()

@@ -2,13 +2,17 @@
 
 #pragma once
 
-#include <ros/ros.h>
-#include <radar_msgs/DetectionRecord.h>
-#include <nav_msgs/Odometry.h>
+#include <rclcpp/rclcpp.hpp>
+#include <radar_msgs/msg/detection_record.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 #include <DataFitting/Service.h>
 
-class Node
+namespace radar_marker {
+
+class Converter : public rclcpp::Node
 {
     enum DynamicsIndex
     {
@@ -18,33 +22,25 @@ class Node
     typedef DataFitting::Type<DynamicsIndex,2> DynamicsType;
 
 public:
-    Node(ros::NodeHandle& node_handle);
-    ~Node();
+    explicit Converter(const std::string& name);
 
 
 private:
-    // Reference to ROS Handle
-    ros::NodeHandle& ros_handle_;
 
     // ROS Interfaces
-    ros::Subscriber subscriber_radarDetections_;
-    ros::Subscriber subscriber_odometry_;
-    ros::Publisher 	publisher_marker_;
+    rclcpp::Subscription<radar_msgs::msg::DetectionRecord>::SharedPtr subscriber_radarDetections_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscriber_odometry_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr publisher_marker_;
 
 private:
     // ROS data reception callbacks
-    void rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstPtr &msg);
-    void rosCallback_odometry(const nav_msgs::Odometry::ConstPtr &msg);
+    void rosCallback_radarDetections(const radar_msgs::msg::DetectionRecord::ConstSharedPtr &msg);
+    void rosCallback_odometry(const nav_msgs::msg::Odometry::ConstSharedPtr &msg);
 
 private:
     // configuration
     struct
     {
-        // ROS topics
-        std::string topic_detectionsInput;
-        std::string topic_odometryInput;
-        std::string topic_markerOutput;
-        std::string frame_base;
         bool config_showMetaInformation{false};
         bool config_showAbsoluteDoppler{true};
     }   configuration_;
@@ -57,3 +53,4 @@ private:
     tf2_ros::TransformListener tfListener;
     DataFitting::Service<DynamicsType> dynamics_service_;
 };
+}

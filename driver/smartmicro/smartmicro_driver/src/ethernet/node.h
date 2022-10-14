@@ -1,42 +1,36 @@
 #pragma once
 
-#include <ros/ros.h>
-#include <ethernet_msgs/Packet.h>
-#include <smartmicro_driver/Instructions.h>
+#include <ethernet_msgs/msg/packet.hpp>
+#include <radar_msgs/msg/detection_record.hpp>
+#include <smartmicro_driver/msg/instructions.hpp>
+#include <rclcpp/rclcpp.hpp>
 
-class Node
+namespace smartmicro_driver
 {
-public:
-    Node(ros::NodeHandle& node_handle);
-    ~Node();
+class Driver : public rclcpp::Node
+{
+  public:
+    explicit Driver(const std::string& name);
 
 
 private:
-    // Reference to ROS Handle
-    ros::NodeHandle& ros_handle_;
-
     // ROS Interfaces
-    ros::Subscriber subscriber_ethernet_;
-    ros::Publisher  publisher_ethernet_;
-    ros::Publisher 	publisher_radarDetections_;
-    ros::Subscriber subscriber_instructions_;
-    ros::Publisher  publisher_instructions_;
+    rclcpp::Subscription<ethernet_msgs::msg::Packet>::SharedPtr subscriber_ethernet_;
+    rclcpp::Publisher<ethernet_msgs::msg::Packet>::SharedPtr publisher_ethernet_;
+    rclcpp::Publisher<radar_msgs::msg::DetectionRecord>::SharedPtr publisher_radarDetections_;
+    rclcpp::Subscription<smartmicro_driver::msg::Instructions>::SharedPtr subscriber_instructions_;
+    rclcpp::Publisher<smartmicro_driver::msg::Instructions>::SharedPtr publisher_instructions_;
 
 private:
     // ROS data reception callbacks
-    void rosCallback_ethernet(const ethernet_msgs::Packet::ConstPtr &msg);
-    void rosCallback_instructions(const smartmicro_driver::Instructions::ConstPtr &msg);
+    void rosCallback_ethernet(const ethernet_msgs::msg::Packet::ConstSharedPtr &msg);
+    void rosCallback_instructions(const smartmicro_driver::msg::Instructions::ConstSharedPtr &msg);
 
 private:
     // configuration
     struct
     {
         // ROS topics
-        std::string topic_ethernetInput;
-        std::string topic_ethernetOutput;
-        std::string topic_detectionsOutput;
-        std::string topic_instructionsRequest;
-        std::string topic_instructionsResponse;
         std::string frame_sensor;
         double      timestamp_correction;
     }   configuration_;
@@ -45,7 +39,7 @@ private:
     // type definitions for SMS protocol entities
     struct PacketMeta
     {
-        ros::Time time;
+        rclcpp::Time time;
         uint32_t ip;
     };
 
@@ -115,7 +109,7 @@ private:
 
     // processing functions for "Instructions" in "SMS Ports"
     void deserialize_smsInstructions(PacketMeta const& meta, SmsPortHeader const& header, std::vector<uint8_t> const& data);
-    void serialize_smsInstructions(PacketMeta const& meta, const std::vector<smartmicro_driver::Instruction>& instructions);
+    void serialize_smsInstructions(PacketMeta const& meta, const std::vector<smartmicro_driver::msg::Instruction>& instructions);
 
 private:
     // converters and helpers
@@ -130,3 +124,4 @@ private:
     static void writeUint32(std::vector<uint8_t> & data, unsigned long offset, uint32_t value);
     static void writeUint64(std::vector<uint8_t> & data, unsigned long offset, uint64_t value);
 };
+} // namespace smartmicro_driver

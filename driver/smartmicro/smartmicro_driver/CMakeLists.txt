@@ -1,42 +1,41 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(smartmicro_driver)
 
-#add_compile_options(-std=c++11)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11" CACHE STRING "" FORCE)
+if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif ()
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  std_msgs
-  can_msgs
-  ethernet_msgs
-  radar_msgs
-  message_generation
-)
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(can_msgs REQUIRED)
+find_package(ethernet_msgs REQUIRED)
+find_package(radar_msgs REQUIRED)
 
-add_message_files(
-   FILES
-   Instruction.msg
-   Instructions.msg
-)
+# include_directories(include)
 
-generate_messages(
-   DEPENDENCIES
-   std_msgs
-)
+rosidl_generate_interfaces(${PROJECT_NAME}
+    "msg/Instruction.msg"
+    "msg/Instructions.msg"
+    DEPENDENCIES std_msgs)
 
-catkin_package(
-  CATKIN_DEPENDS std_msgs radar_msgs
-)
-
-include_directories(
-  ${catkin_INCLUDE_DIRS}
-)
+rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 
 ## CAN
-add_executable(can src/can/main.cpp src/can/node.cpp src/can/dbcc/umrr.c)
-target_link_libraries(can ${catkin_LIBRARIES})
+# add_executable(can src/can/main.cpp src/can/node.cpp src/can/dbcc/umrr.c)
+# ament_target_dependencies(can rclcpp std_msgs can_msgs radar_msgs)
 
-## Ethernet
+# Ethernet
 add_executable(ethernet src/ethernet/main.cpp src/ethernet/node.cpp)
-add_dependencies(ethernet smartmicro_driver_generate_messages_cpp)
-target_link_libraries(ethernet ${catkin_LIBRARIES})
+add_dependencies(ethernet ${PROJECT_NAME})
+target_link_libraries(ethernet ${cpp_typesupport_target})
+ament_target_dependencies(ethernet rclcpp std_msgs ethernet_msgs radar_msgs)
+
+install(TARGETS
+    # can
+    ethernet
+    DESTINATION lib/${PROJECT_NAME})
+
+ament_package()

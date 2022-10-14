@@ -1,22 +1,11 @@
-// HSDF, Philipp Berthold, philipp.berthold@unibw.de
-
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include "node.h"
 
 int main(int argc, char **argv)
 {
-    /// Initialisierung und Vorbereitungen
-    ros::init(argc, argv, "radar_marker_absolute");
-
-    /// Aufbau
-    ros::NodeHandle n("~");
-
-    /// Node starten
-    Node node(n);
-
-    /// Abfahrt
-    ros::spin();
-
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<radar_marker::Converter>("radar_marker_absolute"));
+    rclcpp::shutdown();
     return 0;
 }

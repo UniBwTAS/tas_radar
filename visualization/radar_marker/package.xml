@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>radar_marker</name>
   <version>2.1.0</version>
   <description>Radar detections to Marker converter</description>>
@@ -7,24 +8,20 @@
   <maintainer email="philipp.berthold@unibw.de">phbe</maintainer>
   <license>BSD</license>
 
-  <buildtool_depend>catkin</buildtool_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>roscpp</build_depend>
-  <build_depend>visualization_msgs</build_depend>
-  <build_depend>radar_msgs</build_depend>  
-  <build_export_depend>std_msgs</build_export_depend>
-  <build_export_depend>visualization_msgs</build_export_depend>
-  <build_export_depend>radar_msgs</build_export_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>roscpp</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
-  <exec_depend>radar_msgs</exec_depend>
-
+  <depend>std_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>visualization_msgs</depend>
+  <depend>radar_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>datafitting</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 
 </package>
 

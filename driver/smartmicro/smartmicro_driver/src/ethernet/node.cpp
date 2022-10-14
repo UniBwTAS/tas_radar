@@ -1,45 +1,34 @@
 #include "node.h"
-#include <radar_msgs/DetectionRecord.h>
-#include <ethernet_msgs/utils.h>
+#include <radar_msgs/msg/detection_record.hpp>
+#include <ethernet_msgs/utils.hpp>
 
-#define DEBUG if(0) ROS_INFO
+// #define DEBUG if(0) ROS_INFO
 
+namespace smartmicro_driver
+{
 
-Node::Node(ros::NodeHandle& node_handle) : ros_handle_(node_handle)
+Driver::Driver(const std::string& name) : Node(name)
 {
     /// Parameter
-    // Topics
-    node_handle.param<std::string>("topic_ethernetInput", configuration_.topic_ethernetInput, "ethernet/bus_to_host");
-    node_handle.param<std::string>("topic_ethernetOutput", configuration_.topic_ethernetOutput, "ethernet/host_to_bus");
-    node_handle.param<std::string>("topic_detectionsOutput", configuration_.topic_detectionsOutput, "detections");
-
-    // instructions/request, instructions/response
-    node_handle.param<std::string>("topic_instructionsRequest", configuration_.topic_instructionsRequest, "instructions/request");
-    node_handle.param<std::string>("topic_instructionsResponse", configuration_.topic_instructionsResponse, "instructions/response");
 
     // frame prefix (LSB of sensor IP is added)
-    node_handle.param<std::string>("frame_sensor", configuration_.frame_sensor, "sensor/radar/umrr");
+    configuration_.frame_sensor = this->declare_parameter<std::string>("frame_sensor", "sensor/radar/umrr");
 
     // timestamp offset to correct bus latencies (if desired and not otherwise synchronized)
-    node_handle.param<double>("timestamp_correction", configuration_.timestamp_correction, 0);
+    configuration_.timestamp_correction = this->declare_parameter<double>("timestamp_correction", 0);
 
     /// Subscribing & Publishing
-    subscriber_ethernet_ = ros_handle_.subscribe(configuration_.topic_ethernetInput, 100, &Node::rosCallback_ethernet, this, ros::TransportHints().tcpNoDelay());
-    publisher_ethernet_ = ros_handle_.advertise<ethernet_msgs::Packet>(configuration_.topic_ethernetOutput, 100);
-    publisher_radarDetections_ = ros_handle_.advertise<radar_msgs::DetectionRecord>(configuration_.topic_detectionsOutput, 100);
-    subscriber_instructions_ = ros_handle_.subscribe(configuration_.topic_instructionsRequest, 100, &Node::rosCallback_instructions, this);
-    publisher_instructions_ = ros_handle_.advertise<smartmicro_driver::Instructions>(configuration_.topic_instructionsResponse, 100);
+    subscriber_ethernet_ = this->create_subscription<ethernet_msgs::msg::Packet>("bus_to_host", rclcpp::SensorDataQoS().keep_last(10000), std::bind(&Driver::rosCallback_ethernet, this, std::placeholders::_1));
+    publisher_ethernet_ = this->create_publisher<ethernet_msgs::msg::Packet>("host_to_bus", 10000);
+    publisher_radarDetections_ = this->create_publisher<radar_msgs::msg::DetectionRecord>("detections", 10000);
+    subscriber_instructions_ = this->create_subscription<smartmicro_driver::msg::Instructions>("instructions/request", 10000, std::bind(&Driver::rosCallback_instructions, this, std::placeholders::_1));
+    publisher_instructions_ = this->create_publisher<smartmicro_driver::msg::Instructions>("instructions/response", 10000);
 
     /// Initialize buffer
     flush();
 }
 
-Node::~Node()
-{
-
-}
-
-void Node::rosCallback_ethernet(const ethernet_msgs::Packet::ConstPtr& msg)
+void Driver::rosCallback_ethernet(const ethernet_msgs::msg::Packet::ConstSharedPtr& msg)
 {
     PacketMeta meta;
     meta.time = msg->header.stamp;
@@ -48,7 +37,7 @@ void Node::rosCallback_ethernet(const ethernet_msgs::Packet::ConstPtr& msg)
     deserialize_smsTransport(meta, msg->payload);
 }
 
-void Node::rosCallback_instructions(const smartmicro_driver::Instructions::ConstPtr &msg)
+void Driver::rosCallback_instructions(const smartmicro_driver::msg::Instructions::ConstSharedPtr &msg)
 {
     PacketMeta meta;
     meta.time = msg->header.stamp;
@@ -57,50 +46,50 @@ void Node::rosCallback_instructions(const smartmicro_driver::Instructions::Const
     serialize_smsInstructions(meta, msg->instructions);
 }
 
-void Node::flush()
+void Driver::flush()
 {
     pool.clear();
 }
 
-void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vector<uint8_t> &data)
+void Driver::deserialize_smsTransport(Driver::PacketMeta const& meta, const std::vector<uint8_t> &data)
 {
-    DEBUG("-------");
+    // DEBUG("-------");
 
     // absolute minimum packet size given?
     if (data.size() < 12)
     {
-        ROS_ERROR("packet size < 12. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "packet size < 12. dropping packet.");
         return;
     }
 
     // correct start pattern?
     if (data.at(0) != 0x7E)
     {
-        ROS_ERROR("invalid packet start pattern. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "invalid packet start pattern. dropping packet.");
         return;
     }
 
     // correct protocol version?
     if (data.at(1) != 1)
     {
-        ROS_ERROR("invalid protocol version. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "invalid protocol version. dropping packet.");
         return;
     }
 
     int header_length = readUint8(data, 2);
-    DEBUG("header length: %i", header_length);
+    // DEBUG("header length: %i", header_length);
 
     int payload_length = readUint16(data, 3);
-    DEBUG("payload length: %i", payload_length);
+    // DEBUG("payload length: %i", payload_length);
 
     int packet_length = data.size();
-    DEBUG("packet length: %i", packet_length);
+    // DEBUG("packet length: %i", packet_length);
 
     uint8_t application_protocol = readUint8(data, 5);
-    DEBUG("application prot: %i", application_protocol);
+    // DEBUG("application prot: %i", application_protocol);
 
     uint32_t flags = readUint32(data, 6);
-    DEBUG("flags: %i", flags);
+    // DEBUG("flags: %i", flags);
 
     bool flag_messageCounter = flags & (1 << 0);
     bool flag_skipPayloadCRC = flags & (1 << 2);
@@ -108,26 +97,26 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     bool flag_dataIdentifier = flags & (1 << 5);
     bool flag_segmentation = flags & (1 << 6);
 
-    DEBUG("flag.messageCounter = %i", flag_messageCounter);
-    DEBUG("flag.skipPayloadCRC = %i", flag_skipPayloadCRC);
-    DEBUG("flag.sourceClientId = %i", flag_sourceClientId);
-    DEBUG("flag.dataIdentifier = %i", flag_dataIdentifier);
-    DEBUG("flag.segmentation = %i", flag_segmentation);
+    // DEBUG("flag.messageCounter = %i", flag_messageCounter);
+    // DEBUG("flag.skipPayloadCRC = %i", flag_skipPayloadCRC);
+    // DEBUG("flag.sourceClientId = %i", flag_sourceClientId);
+    // DEBUG("flag.dataIdentifier = %i", flag_dataIdentifier);
+    // DEBUG("flag.segmentation = %i", flag_segmentation);
 
     int header_flags_length = 2 * flag_messageCounter + 4 * flag_sourceClientId + 2 * flag_dataIdentifier + 2 * flag_segmentation;
-    DEBUG("header flags length = %i", header_flags_length);
+    // DEBUG("header flags length = %i", header_flags_length);
 
     // header size ok?
     if (header_length != 12 + header_flags_length)
     {
-        ROS_ERROR("header length inconsistent. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "header length inconsistent. dropping packet.");
         return;
     }
 
     // packet size ok?
     if (packet_length != header_length + payload_length + 2 * (!flag_skipPayloadCRC))
     {
-        ROS_ERROR("packet size does not match header information. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "packet size does not match header information. dropping packet.");
         return;
     }
 
@@ -135,18 +124,18 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     // check CRC
     uint16_t crc = readUint16(data, header_length - 2);
     uint16_t crc_computed = crc16(data, 0, header_length - 2);
-    DEBUG("crc header: %i, computed: %i", crc, crc_computed);
+    // DEBUG("crc header: %i, computed: %i", crc, crc_computed);
 
     // checksum ok?
     if (crc != crc_computed)
     {
-        ROS_ERROR("checksum wrong. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "checksum wrong. dropping packet.");
         return;
     }
 
     if (flag_segmentation && (!flag_dataIdentifier))
     {
-        ROS_ERROR("segmented packet without data_identifier. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "segmented packet without data_identifier. dropping packet.");
         return;
     }
 
@@ -164,28 +153,28 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     {
         package.header.messageCounter.data = readUint16(data, offset);
         offset += 2;
-        DEBUG("messageCounter = %i", package.header.messageCounter.data);
+        // DEBUG("messageCounter = %i", package.header.messageCounter.data);
     }
 
     if (package.header.sourceClientId.available)
     {
         package.header.sourceClientId.data = readUint32(data, offset);
         offset += 4;
-        DEBUG("sourceClientId = %i", package.header.sourceClientId.data);
+        // DEBUG("sourceClientId = %i", package.header.sourceClientId.data);
     }
 
     if (package.header.dataIdentifier.available)
     {
         package.header.dataIdentifier.data = readUint16(data, offset);
         offset += 2;
-        DEBUG("dataIdentifier = %i", package.header.dataIdentifier.data);
+        // DEBUG("dataIdentifier = %i", package.header.dataIdentifier.data);
     }
 
     if (package.header.segmentation.available)
     {
         package.header.segmentation.data = readUint16(data, offset);
         offset += 2;
-        DEBUG("segmentation = %i", package.header.segmentation.data);
+        // DEBUG("segmentation = %i", package.header.segmentation.data);
     }
     package.applicationData = std::vector<uint8_t>(data.begin() + header_length, data.begin() + header_length + payload_length);
 
@@ -193,7 +182,7 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     bool isSingle = !package.header.segmentation.available;
     if ((!isSegmented) && (!isSingle))
     {
-        ROS_ERROR("segmented packet with missing segmentation meta data. dropping packet.");
+        RCLCPP_ERROR(this->get_logger(), "segmented packet with missing segmentation meta data. dropping packet.");
         return;
     }
 
@@ -204,13 +193,13 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     }
     else if (isSegmented)
     {
-        DEBUG("pool size: %zu", pool.size());
+        // DEBUG("pool size: %zu", pool.size());
 
         // remove outdated packets of pool
         for (int i = pool.size() - 1; i >= 0; i -= 1)
-            if ((package.meta.time - pool.at(i).meta.time > ros::Duration(1)) || (pool.at(i).meta.time - package.meta.time > ros::Duration(0.2)))
+            if ((package.meta.time - pool.at(i).meta.time > rclcpp::Duration::from_seconds(1)) || (pool.at(i).meta.time - package.meta.time > rclcpp::Duration::from_seconds(0.2)))
             {
-                ROS_WARN("removing outdated packet from pool. Current packet timestamp = %f, Pool packet timestamp = %f, IP = .%u",package.meta.time.toSec(), pool.at(i).meta.time.toSec(), package.meta.ip & 0xFF);
+                RCLCPP_WARN(this->get_logger(), "removing outdated packet from pool. Current packet timestamp = %f, Pool packet timestamp = %f, IP = .%u", rclcpp::Time(package.meta.time).seconds(), rclcpp::Time(pool.at(i).meta.time).seconds(), package.meta.ip & 0xFF);
                 pool.erase(pool.begin() + i);
             }
 
@@ -263,16 +252,16 @@ void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vec
     }
 }
 
-void Node::process_smsTransport(const SmsTransport &package)
+void Driver::process_smsTransport(const SmsTransport &package)
 {
     switch(package.header.applicationProtocolType)
     {
         case 6:
-            DEBUG("got undocumented debug message!");
+            // DEBUG("got undocumented debug message!");
         break;
 
         case 8:
-            DEBUG("got port!");
+            // DEBUG("got port!");
             deserialize_smsPort(package.meta, package.applicationData);
         break;
 
@@ -281,12 +270,12 @@ void Node::process_smsTransport(const SmsTransport &package)
     }
 }
 
-void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> const& data)
+void Driver::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> const& data)
 {
     // minimum length available?
     if (data.size() < 24)
     {
-        ROS_ERROR("port size < 24. dropping port.");
+        RCLCPP_ERROR(this->get_logger(), "port size < 24. dropping port.");
         return;
     }
 
@@ -301,20 +290,20 @@ void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> cons
     header.version_headerMajor = readUint8(data, 22);
     header.version_headerMinor = readUint8(data, 23);
 
-    DEBUG("port_identifier %u", header.identifier);
-    DEBUG("port_version_major %u", header.version_portMajor);
-    DEBUG("port_version_minor %u", header.version_portMinor);
-    DEBUG("port_timestamp %lu", header.timestamp);
-    DEBUG("port_size %u", header.size);
-    DEBUG("port_endianess %u", header.endianess);
-    DEBUG("port_index %u", header.index);
-    DEBUG("port_header_version_major %u", header.version_headerMajor);
-    DEBUG("port_header_version_minor %u", header.version_headerMinor);
+    // DEBUG("port_identifier %u", header.identifier);
+    // DEBUG("port_version_major %u", header.version_portMajor);
+    // DEBUG("port_version_minor %u", header.version_portMinor);
+    // DEBUG("port_timestamp %lu", header.timestamp);
+    // DEBUG("port_size %u", header.size);
+    // DEBUG("port_endianess %u", header.endianess);
+    // DEBUG("port_index %u", header.index);
+    // DEBUG("port_header_version_major %u", header.version_headerMajor);
+    // DEBUG("port_header_version_minor %u", header.version_headerMinor);
 
     // check size
     if (data.size() < header.size)
     {
-        ROS_ERROR("actual port size (%zu) less than announced size (%i). dropping port.", data.size(), header.size);
+        RCLCPP_ERROR(this->get_logger(), "actual port size (%zu) less than announced size (%i). dropping port.", data.size(), header.size);
         // no "portData.size() != port.size" comparison as sometimes filling bytes are appended depending on the firmware version
         return;
     }
@@ -326,13 +315,13 @@ void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> cons
 
     if (header.version_headerMajor != version_headerMajor || header.version_headerMinor > version_headerMinor)
     {
-        ROS_ERROR("port header version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_headerMajor, header.version_headerMinor, version_headerMajor, version_headerMinor);
+        RCLCPP_ERROR(this->get_logger(), "port header version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_headerMajor, header.version_headerMinor, version_headerMajor, version_headerMinor);
         return;
     }
 
     if (header.endianess != endianess)
     {
-        ROS_ERROR("desired endianess (%i) not supported. dropping port.", header.endianess);
+        RCLCPP_ERROR(this->get_logger(), "desired endianess (%i) not supported. dropping port.", header.endianess);
         return;
     }
 
@@ -344,17 +333,17 @@ void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> cons
     process_smsPort(port);
 }
 
-void Node::process_smsPort(const Node::SmsPort &port)
+void Driver::process_smsPort(const Driver::SmsPort &port)
 {
     switch (port.header.identifier)
     {
         case 66:
-            DEBUG("got target list!");
+            // DEBUG("got target list!");
             deserialize_smsTargetList(port.meta, port.header, port.data);
         break;
 
         case 46:
-            DEBUG("got instruction list!");
+            // DEBUG("got instruction list!");
             deserialize_smsInstructions(port.meta, port.header, port.data);
         break;
 
@@ -363,7 +352,7 @@ void Node::process_smsPort(const Node::SmsPort &port)
     }
 }
 
-void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const& header, std::vector<uint8_t> const& data)
+void Driver::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const& header, std::vector<uint8_t> const& data)
 {
     // check port version compatibility
     enum class ParserVersion
@@ -382,105 +371,105 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
 
     if (parserVersion == ParserVersion::unknown)
     {
-        ROS_ERROR("Target List port version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_portMajor, header.version_portMinor, 2, 1);
+        RCLCPP_ERROR(this->get_logger(), "Target List port version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_portMajor, header.version_portMinor, 2, 1);
         return;
     }
 
     // minimum length available?
     if (data.size() < 8)
     {
-        ROS_ERROR("target list header not received. dropping target list.");
+        RCLCPP_ERROR(this->get_logger(), "target list header not received. dropping target list.");
         return;
     }
 
     // read target list header
     float cycleTime = readFloat32(data, 0);
     uint16_t nrOfTargets = readUint16(data, 4);
-    radar_msgs::Coverage coverage;
+    radar_msgs::msg::Coverage coverage;
 
     if (parserVersion == ParserVersion::v1_0)
     {
-        DEBUG("got %u detections. cycle time = %f.", nrOfTargets, cycleTime);
-        coverage.value = radar_msgs::Coverage::UNKNOWN;
+        // DEBUG("got %u detections. cycle time = %f.", nrOfTargets, cycleTime);
+        coverage.value = radar_msgs::msg::Coverage::UNKNOWN;
     }
     else if (parserVersion == ParserVersion::v2_1)
     {
         uint16_t acquisitionSetup = readUint16(data, 6);
-        DEBUG("got %u detections. cycle time = %f. acq = %u.", nrOfTargets, cycleTime, acquisitionSetup);
+        // DEBUG("got %u detections. cycle time = %f. acq = %u.", nrOfTargets, cycleTime, acquisitionSetup);
 
         if (acquisitionSetup & 0b1)
         {
             unsigned int txAntennaIdx = (acquisitionSetup & 0b110) >> 1;
             unsigned int sweepIdx = (acquisitionSetup & 0b11000) >> 3;
             unsigned int centerFreqIdx = (acquisitionSetup & 0b1100000) >> 5;
-            DEBUG("txAntennaIdx = %u. sweepIdx = %u. centerFreqIdx = %u.", txAntennaIdx, sweepIdx, centerFreqIdx);
+            // DEBUG("txAntennaIdx = %u. sweepIdx = %u. centerFreqIdx = %u.", txAntennaIdx, sweepIdx, centerFreqIdx);
 
             switch(sweepIdx)
             {
                 case 0:
-                    coverage.value = radar_msgs::Coverage::LONGRANGE;
+                    coverage.value = radar_msgs::msg::Coverage::LONGRANGE;
                 break;
 
                 case 1:
-                    coverage.value = radar_msgs::Coverage::MIDRANGE;
+                    coverage.value = radar_msgs::msg::Coverage::MIDRANGE;
                 break;
 
                 case 2:
-                    coverage.value = radar_msgs::Coverage::SHORTRANGE;
+                    coverage.value = radar_msgs::msg::Coverage::SHORTRANGE;
                 break;
 
                 default:
-                    coverage.value = radar_msgs::Coverage::LONGRANGE;
+                    coverage.value = radar_msgs::msg::Coverage::LONGRANGE;
                 break;
             }
         }
         else
-            coverage.value = radar_msgs::Coverage::UNKNOWN;
+            coverage.value = radar_msgs::msg::Coverage::UNKNOWN;
     }
 
     // check number of targets
     if (nrOfTargets > 110)
     {
-        ROS_ERROR("too high number of targets (%i). dropping target list.", nrOfTargets);
+        RCLCPP_ERROR(this->get_logger(), "too high number of targets (%i). dropping target list.", nrOfTargets);
         return;
     }
 
     // check port body data size (port brutto)
     if (data.size() < 8 + 56*nrOfTargets)
     {
-        ROS_ERROR("portData size %lu smaller than required data size (8 + 56 * %u). dropping target list.", data.size(), nrOfTargets);
+        RCLCPP_ERROR(this->get_logger(), "portData size %lu smaller than required data size (8 + 56 * %u). dropping target list.", data.size(), nrOfTargets);
         return;
     }
 
     // check actual port size (port netto)
     if (header.size != 24 + 8 + 56*nrOfTargets)
     {
-        ROS_ERROR("port size %i mismatches announced size (24 + 8 + 56 * %i). dropping target list.", header.size, nrOfTargets);
+        RCLCPP_ERROR(this->get_logger(), "port size %i mismatches announced size (24 + 8 + 56 * %i). dropping target list.", header.size, nrOfTargets);
         return;
     }
 
     // read detections
-    radar_msgs::DetectionRecord record;
-    record.header.stamp = meta.time + ros::Duration().fromSec(configuration_.timestamp_correction);
+    radar_msgs::msg::DetectionRecord record;
+    record.header.stamp = meta.time + rclcpp::Duration::from_seconds(configuration_.timestamp_correction);
     record.header.frame_id = configuration_.frame_sensor + "/" + std::to_string(meta.ip & 0xFF);
 
     record.detections.reserve(nrOfTargets);
     for (unsigned int i = 0; i < nrOfTargets; i += 1)
     {
-        radar_msgs::Detection detection;
-        detection.range.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        radar_msgs::msg::Detection detection;
+        detection.range.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.range.value = readFloat32(data, 8 + i*56 + 0);
-        detection.radial_speed.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.radial_speed.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.radial_speed.value = readFloat32(data, 8 + i*56 + 4);
-        detection.azimuth.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.azimuth.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.azimuth.value = readFloat32(data, 8 + i*56 + 8);
-        detection.elevation.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.elevation.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.elevation.value = readFloat32(data, 8 + i*56 + 12);
-        detection.rcs.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.rcs.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.rcs.value = readFloat32(data, 8 + i*56 + 32);
-        detection.power.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.power.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.power.value = readFloat32(data, 8 + i*56 + 44);
-        detection.noise.available = radar_msgs::Measurement::AVAILABLE_VALUE;
+        detection.noise.available = radar_msgs::msg::Measurement::AVAILABLE_VALUE;
         detection.noise.value = readFloat32(data, 8 + i*56 + 48);
         detection.coverage.value = coverage.value;
 
@@ -488,10 +477,10 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     }
 
     // process "SMS Target List" (in ROS world)
-    publisher_radarDetections_.publish(record);
+    publisher_radarDetections_->publish(record);
 }
 
-void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHeader &header, const std::vector<uint8_t> &data)
+void Driver::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHeader &header, const std::vector<uint8_t> &data)
 {
     // check port version compatibility
     const int version_portMajor = 2;
@@ -499,44 +488,44 @@ void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHead
 
     if (header.version_portMajor != version_portMajor || header.version_portMinor < version_portMinor)
     {
-        ROS_ERROR("Instruction port version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_portMajor, header.version_portMinor, version_portMajor, version_portMinor);
+        RCLCPP_ERROR(this->get_logger(), "Instruction port version incompatible. Datastream: Major = %i, Minor = %i. Parser: Major = %i, Minor = %i. dropping port.", header.version_portMajor, header.version_portMinor, version_portMajor, version_portMinor);
         return;
     }
 
     // minimum length available?
     if (data.size() < 8)
     {
-        ROS_ERROR("instructions header not received. dropping instructions.");
+        RCLCPP_ERROR(this->get_logger(), "instructions header not received. dropping instructions.");
         return;
     }
 
     // read target list header
     uint8_t nrOfInstructions = readUint8(data, 0);
-    DEBUG("got %u instructions", nrOfInstructions);
+    // DEBUG("got %u instructions", nrOfInstructions);
 
     // check number of targets
     if (nrOfInstructions > 10)
     {
-        ROS_ERROR("too high number of instructions (%i). dropping instructions.", nrOfInstructions);
+        RCLCPP_ERROR(this->get_logger(), "too high number of instructions (%i). dropping instructions.", nrOfInstructions);
         return;
     }
 
     // check size
     if (data.size() != 8 + 24*nrOfInstructions)
     {
-        ROS_ERROR("port payload size %lu mismatches expected size (8 + 24 * %u). dropping instructions.", data.size(), nrOfInstructions);
+        RCLCPP_ERROR(this->get_logger(), "port payload size %lu mismatches expected size (8 + 24 * %u). dropping instructions.", data.size(), nrOfInstructions);
         return;
     }
 
     // read instructions
-    smartmicro_driver::Instructions instructions;
+    smartmicro_driver::msg::Instructions instructions;
     instructions.header.stamp = meta.time;
     instructions.header.frame_id = configuration_.frame_sensor + "/" + std::to_string(meta.ip & 0xFF);
 
     instructions.instructions.reserve(nrOfInstructions);
     for (unsigned int i = 0; i < nrOfInstructions; i += 1)
     {
-        smartmicro_driver::Instruction instruction;
+        smartmicro_driver::msg::Instruction instruction;
         const unsigned int offset = 8 + i*24;
 
         instruction.request     = readUint8 (data, offset +  0);
@@ -550,22 +539,22 @@ void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHead
 
         switch (instruction.datatype)
         {
-            case smartmicro_driver::Instruction::DATATYPE_U8:
-            case smartmicro_driver::Instruction::DATATYPE_I8:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U8:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I8:
                 value_conv = value_raw >> 7*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_U16:
-            case smartmicro_driver::Instruction::DATATYPE_I16:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U16:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I16:
                 value_conv = value_raw >> 6*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_U32:
-            case smartmicro_driver::Instruction::DATATYPE_I32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I32:
                 value_conv = value_raw >> 4*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_F32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_F32:
             {
                 uint32_t val = value_raw >> 4*8;
                 value_conv = *((float*) &val);
@@ -573,7 +562,7 @@ void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHead
             break;
 
             default:
-                ROS_ERROR("invalid instruction response: datatype invalid (%u). dropping instructions.", instruction.datatype);
+                RCLCPP_ERROR(this->get_logger(), "invalid instruction response: datatype invalid (%u). dropping instructions.", instruction.datatype);
                 return;
             break;
         }
@@ -584,10 +573,10 @@ void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHead
 
     // process "SMS Instructions" (in ROS world)
     instructions.destination = meta.ip & 0xFF;
-    publisher_instructions_.publish(instructions);
+    publisher_instructions_->publish(instructions);
 }
 
-void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<smartmicro_driver::Instruction> &instructions)
+void Driver::serialize_smsInstructions(const PacketMeta &meta, const std::vector<smartmicro_driver::msg::Instruction> &instructions)
 {
     if (instructions.size() > 10)
         return;
@@ -601,22 +590,22 @@ void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<s
         uint64_t value_raw;
         switch (instructions.at(i).datatype)
         {
-            case smartmicro_driver::Instruction::DATATYPE_U8:
-            case smartmicro_driver::Instruction::DATATYPE_I8:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U8:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I8:
                 value_raw = static_cast<uint64_t>(instructions.at(i).value) << 7*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_U16:
-            case smartmicro_driver::Instruction::DATATYPE_I16:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U16:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I16:
                 value_raw = static_cast<uint64_t>(instructions.at(i).value) << 6*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_U32:
-            case smartmicro_driver::Instruction::DATATYPE_I32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_U32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_I32:
                 value_raw = static_cast<uint64_t>(instructions.at(i).value) << 4*8;
             break;
 
-            case smartmicro_driver::Instruction::DATATYPE_F32:
+            case smartmicro_driver::msg::Instruction::DATATYPE_F32:
             {
                 float val = static_cast<float>(instructions.at(i).value);
                 value_raw = static_cast<uint64_t>( *((uint32_t*) &val) ) << 4*8;
@@ -624,7 +613,7 @@ void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<s
             break;
 
             default:
-                ROS_WARN("invalid instruction request: datatype invalid (%u). dropping instructions.", instructions.at(i).datatype);
+                RCLCPP_WARN(this->get_logger(), "invalid instruction request: datatype invalid (%u). dropping instructions.", instructions.at(i).datatype);
                 return;
             break;
         }
@@ -643,7 +632,7 @@ void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<s
     serialize_smsPort(meta, 0, 46, instruction_data);
 }
 
-void Node::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data)
+void Driver::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data)
 {
     // assemble header
     SmsPortHeader header;
@@ -675,7 +664,7 @@ void Node::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_
     serialize_smsTransport(meta, 8, port_binary);
 }
 
-void Node::serialize_smsTransport(PacketMeta const& meta, uint8_t applicationProtocolType, std::vector<uint8_t> const& data)
+void Driver::serialize_smsTransport(PacketMeta const& meta, uint8_t applicationProtocolType, std::vector<uint8_t> const& data)
 {
     // safety check: unfragmented package (instructions guaranted to be < MTP)
     if (data.size() > 1100)
@@ -696,28 +685,28 @@ void Node::serialize_smsTransport(PacketMeta const& meta, uint8_t applicationPro
     transport_binary.insert(std::end(transport_binary), std::begin(data), std::end(data));
 
     // send to sensor
-    ethernet_msgs::Packet packet;
+    ethernet_msgs::msg::Packet packet;
     packet.header.stamp = meta.time;
     packet.receiver_ip = ethernet_msgs::arrayByNativeIp4(meta.ip);
     packet.receiver_port = 55555;
     packet.payload = transport_binary;
-    publisher_ethernet_.publish(packet);
+    publisher_ethernet_->publish(packet);
 }
 
 
-uint8_t Node::readUint8(const std::vector<uint8_t> &data, unsigned long offset)
+uint8_t Driver::readUint8(const std::vector<uint8_t> &data, unsigned long offset)
 {
     return data.at(offset);
 }
 
-uint16_t Node::readUint16(const std::vector<uint8_t> &data, unsigned long offset)
+uint16_t Driver::readUint16(const std::vector<uint8_t> &data, unsigned long offset)
 {
     return
             ( static_cast<uint16_t>(data.at(offset + 0)) <<  8) |
             ( static_cast<uint16_t>(data.at(offset + 1)) <<  0) ;
 }
 
-uint32_t Node::readUint32(const std::vector<uint8_t> &data, unsigned long offset)
+uint32_t Driver::readUint32(const std::vector<uint8_t> &data, unsigned long offset)
 {
     return
             ( static_cast<uint32_t>(data.at(offset + 0)) << 24 ) |
@@ -726,7 +715,7 @@ uint32_t Node::readUint32(const std::vector<uint8_t> &data, unsigned long offset
             ( static_cast<uint32_t>(data.at(offset + 3)) <<  0 ) ;
 }
 
-uint64_t Node::readUint64(const std::vector<uint8_t> &data, unsigned long offset)
+uint64_t Driver::readUint64(const std::vector<uint8_t> &data, unsigned long offset)
 {
     return
             ( static_cast<uint64_t>(data.at(offset + 0)) << 56 ) |
@@ -739,7 +728,7 @@ uint64_t Node::readUint64(const std::vector<uint8_t> &data, unsigned long offset
             ( static_cast<uint64_t>(data.at(offset + 7)) <<  0 ) ;
 }
 
-float Node::readFloat32(const std::vector<uint8_t> &data, unsigned long offset)
+float Driver::readFloat32(const std::vector<uint8_t> &data, unsigned long offset)
 {
     uint32_t raw =
             ( static_cast<uint32_t>(data.at(offset + 0)) << 24 ) |
@@ -750,7 +739,7 @@ float Node::readFloat32(const std::vector<uint8_t> &data, unsigned long offset)
     return *((float*) &raw);
 }
 
-uint16_t Node::crc16(const std::vector<uint8_t> &data, int start, int length)
+uint16_t Driver::crc16(const std::vector<uint8_t> &data, int start, int length)
 {
     uint8_t i;
     uint16_t wCrc = 0xffff;
@@ -762,18 +751,18 @@ uint16_t Node::crc16(const std::vector<uint8_t> &data, int start, int length)
     return wCrc & 0xffff;
 }
 
-void Node::writeUint8(std::vector<uint8_t> &data, unsigned long offset, uint8_t value)
+void Driver::writeUint8(std::vector<uint8_t> &data, unsigned long offset, uint8_t value)
 {
     data[offset] = value;
 }
 
-void Node::writeUint16(std::vector<uint8_t> &data, unsigned long offset, uint16_t value)
+void Driver::writeUint16(std::vector<uint8_t> &data, unsigned long offset, uint16_t value)
 {
     data[offset]    = (value >>  8) & 0xFF;
     data[offset+1]  = (value >>  0) & 0xFF;
 }
 
-void Node::writeUint32(std::vector<uint8_t> &data, unsigned long offset, uint32_t value)
+void Driver::writeUint32(std::vector<uint8_t> &data, unsigned long offset, uint32_t value)
 {
     data[offset]    = (value >> 24) & 0xFF;
     data[offset+1]  = (value >> 16) & 0xFF;
@@ -781,7 +770,7 @@ void Node::writeUint32(std::vector<uint8_t> &data, unsigned long offset, uint32_
     data[offset+3]  = (value >>  0) & 0xFF;
 }
 
-void Node::writeUint64(std::vector<uint8_t> &data, unsigned long offset, uint64_t value)
+void Driver::writeUint64(std::vector<uint8_t> &data, unsigned long offset, uint64_t value)
 {
     data[offset]    = (value >> 56) & 0xFF;
     data[offset+1]  = (value >> 48) & 0xFF;
@@ -792,3 +781,4 @@ void Node::writeUint64(std::vector<uint8_t> &data, unsigned long offset, uint64_
     data[offset+6]  = (value >>  8) & 0xFF;
     data[offset+7]  = (value >>  0) & 0xFF;
 }
+} // namespace smartmicro_driver
