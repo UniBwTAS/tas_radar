@@ -13,9 +13,11 @@
   <build_depend>roscpp</build_depend>
   <build_depend>smartmicro_driver</build_depend>
   <build_depend>message_generation</build_depend>
+  <build_depend>librosqt</build_depend>
   <build_export_depend>std_msgs</build_export_depend>
   <build_export_depend>smartmicro_driver</build_export_depend>
   <build_export_depend>message_generation</build_export_depend>
+  <build_export_depend>librosqt</build_export_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>roscpp</exec_depend>
   <exec_depend>smartmicro_driver</exec_depend>
