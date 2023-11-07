@@ -159,7 +159,18 @@ void Node::rosCallback_radarDetections(const radar_msgs::DetectionRecord::ConstP
         DataFitting::ComputationStatus status;
         DynamicsType dynamics = dynamics_service_.getValueAtTime(msg->header.stamp.toSec(), &status);
         if (status != DataFitting::ComputationStatus::interpolation)
-            ROS_WARN("data service %s, odom %lf, radar %lf", computationStatusToString(status).data(), dynamics_service_.getNewestSample().time, msg->header.stamp.toSec());
+        {
+            bool ok;
+            auto newestSample = dynamics_service_.getNewestSample(&ok);
+
+            if (ok)
+                ROS_WARN("Odom interpolation issue. Odom available: %s, latest odom sample time: %lf, current measurement time: %lf", computationStatusToString(status).data(), newestSample.time, msg->header.stamp.toSec());
+            else
+            {
+                ROS_WARN("Odom interpolation issue. Odom available: %s, latest odom sample time: n/a, current measurement time: %lf. Discarding measurement.", computationStatusToString(status).data(), msg->header.stamp.toSec());
+                return;
+            }
+        }
 
         double speed = dynamics.get(DynamicsIndex::speed);
         double yawrate = dynamics.get(DynamicsIndex::yawrate);
