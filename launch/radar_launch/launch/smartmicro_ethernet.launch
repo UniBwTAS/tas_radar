@@ -7,6 +7,7 @@
     <arg name="ns_ethernet_bridge" default="bus/smartmicro/eth_measurements"/>
     <arg name="ns_driver" default="sensor/radar/smartmicro"/>
     <arg name="topic_marker" default="/visualization/sensor/radar/smartmicro/detections"/>
+    <arg name="topic_accumulation" default="/visualization/sensor/radar/smartmicro/detections_accumulation"/>
 
     <group ns="$(arg ns_driver)">
         <!-- ethernet bridge -->
@@ -40,6 +41,14 @@
             <param name="topic_detectionsInput" value="/$(arg ns_driver)/detections"/>
             <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
             <param name="topic_markerOutput" value="$(arg topic_marker)"/>
+        </node>
+
+        <!-- visualize detections with Pointcloud2 -->
+        <node pkg="radar_pointcloud" type="detection_accumulation" name="detections_to_pointcloud">
+            <param name="topic_detectionsInput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
+            <param name="topic_accumulationOutput" value="$(arg topic_accumulation)"/>
+            <param name="config_accumulationTime" value="10"/>
         </node>
 
         <!-- simple example TF for the initial sensor IP 192.168.11.11 -->
