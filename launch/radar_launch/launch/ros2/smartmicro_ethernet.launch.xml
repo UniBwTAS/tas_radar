@@ -8,6 +8,7 @@
     <arg name="ns_driver" default="sensor/radar/smartmicro"/>
     <arg name="topic_marker" default="/visualization/sensor/radar/smartmicro/detections"/>
     <arg name="topic_accumulation" default="/visualization/sensor/radar/smartmicro/detections_accumulation"/>
+    <arg name="topic_pointcloud" default="/visualization/sensor/radar/smartmicro/detections_pointcloud"/>
 
     <group>
         <push-ros-namespace namespace="$(var ns_driver)"/>
@@ -52,12 +53,19 @@
             <param name="topic_markerOutput" value="$(var topic_marker)"/>
         </node>
 
-        <!-- visualize detections with Pointcloud2 -->
-        <node pkg="radar_pointcloud" exec="detection_accumulation" name="detections_to_pointcloud">
+        <!-- accumulate detections over time into one ego-motion-compensated Pointcloud2 -->
+        <node pkg="radar_pointcloud" exec="detection_accumulation" name="detection_accumulation">
             <param name="topic_detectionsInput" value="/$(var ns_driver)/detections"/>
             <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
             <param name="topic_accumulationOutput" value="$(var topic_accumulation)"/>
             <param name="config_accumulationTime" value="10.0"/>
+        </node>
+
+        <!-- per-sensor Pointcloud2 with all measurement fields per point -->
+        <node pkg="radar_pointcloud" exec="detections_to_pointcloud" name="detections_to_pointcloud">
+            <param name="topic_detectionsInput" value="/$(var ns_driver)/detections"/>
+            <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
+            <param name="topic_pointcloudOutput" value="$(var topic_pointcloud)"/>
         </node>
 
         <!-- simple example TF for the initial sensor IP 192.168.11.11 -->

@@ -32,7 +32,7 @@ The repository currently contains the following main packages:
 - `driver/smartmicro/smartmicro_configurator`: Qt-based smartmicro configuration GUI
 - `messages/radar_msgs`: generic radar detection messages
 - `visualization/radar_marker`: RViz marker visualization
-- `visualization/radar_pointcloud`: accumulated point cloud visualization
+- `visualization/radar_pointcloud`: per-sensor and accumulated point-cloud visualization
 - `launch/radar_launch`: example launch files
 - `documentation`: archived protocol documentation used during development and migration
 

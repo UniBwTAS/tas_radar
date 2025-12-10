@@ -22,7 +22,6 @@ if(DEFINED ENV{ROS_VERSION} AND "$ENV{ROS_VERSION}" STREQUAL "1")
   )
 
   include_directories(
-    src/detection_accumulation
     ${catkin_INCLUDE_DIRS}
   )
 
@@ -30,8 +29,17 @@ if(DEFINED ENV{ROS_VERSION} AND "$ENV{ROS_VERSION}" STREQUAL "1")
     src/detection_accumulation/detection_accumulation_node_ros1.cpp
     src/detection_accumulation/ros1/node.cpp
     src/detection_accumulation/core/accumulate.cpp)
+  target_include_directories(detection_accumulation PRIVATE src/detection_accumulation)
   add_dependencies(detection_accumulation ${catkin_EXPORTED_TARGETS})
   target_link_libraries(detection_accumulation ${catkin_LIBRARIES})
+
+  add_executable(detections_to_pointcloud
+    src/detections_to_pointcloud/detections_to_pointcloud_node_ros1.cpp
+    src/detections_to_pointcloud/ros1/node.cpp
+    src/detections_to_pointcloud/core/pointcloud_core.cpp)
+  target_include_directories(detections_to_pointcloud PRIVATE src/detections_to_pointcloud)
+  add_dependencies(detections_to_pointcloud ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(detections_to_pointcloud ${catkin_LIBRARIES})
 
 elseif(DEFINED ENV{ROS_VERSION} AND "$ENV{ROS_VERSION}" STREQUAL "2")
   # ===================== ROS 2 (ament / rclcpp) =====================
@@ -54,6 +62,15 @@ elseif(DEFINED ENV{ROS_VERSION} AND "$ENV{ROS_VERSION}" STREQUAL "2")
   ament_target_dependencies(detection_accumulation
     rclcpp std_msgs radar_msgs sensor_msgs nav_msgs geometry_msgs datafitting tf2 tf2_ros)
   install(TARGETS detection_accumulation DESTINATION lib/${PROJECT_NAME})
+
+  add_executable(detections_to_pointcloud
+    src/detections_to_pointcloud/detections_to_pointcloud_node_ros2.cpp
+    src/detections_to_pointcloud/ros2/node.cpp
+    src/detections_to_pointcloud/core/pointcloud_core.cpp)
+  target_include_directories(detections_to_pointcloud PRIVATE src/detections_to_pointcloud)
+  ament_target_dependencies(detections_to_pointcloud
+    rclcpp std_msgs radar_msgs sensor_msgs nav_msgs geometry_msgs datafitting tf2 tf2_ros)
+  install(TARGETS detections_to_pointcloud DESTINATION lib/${PROJECT_NAME})
 
   ament_package()
 
