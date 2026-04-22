@@ -6,8 +6,7 @@ https://user-images.githubusercontent.com/2410398/183098526-23277037-e311-43d7-9
 A crossing scenario in RViz with ego-compensated Doppler visualization (dynamic detections surrounded by color-coded bubbles).
 
 This repository contains only sensor drivers for [smartmicro (SMS)](https://www.smartmicro.com/automotive-radar) so far:
-- based on Ethernet Interface V07 and Customer Interface V13
-- supporting UMRR-11 (Far Range Sensor) and UMRR-96 (Short Range Sensor)
+- supporting UMRR and DRVEGRD
 - automatic switching to legacy parsers of outdated protocol versions; simultaneous operation of radars with different firmwares
 
 This collection offers the following features:
@@ -34,5 +33,3 @@ Configuration tool:
 
 Detection accumulation with egomotion-compensated radial speed channel:
 ![detection_accumulation](https://github.com/UniBwTAS/tas_radar/assets/2410398/dead3581-2660-4b38-85a1-0f3d9de667c8)
-
-

@@ -370,13 +370,16 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     {
         unknown,
         v1_0,
-        v2_1
+        v2_1,
+        v4_1
     }   parserVersion;
 
-    if (header.version_portMajor == 2 && header.version_portMinor >= 1)
-        parserVersion = ParserVersion::v2_1;
-    else if (header.version_portMajor == 1 && header.version_portMinor >= 0)
+    if (header.version_portMajor == 1 && header.version_portMinor <= 0)
         parserVersion = ParserVersion::v1_0;
+    else if (header.version_portMajor == 2 && header.version_portMinor <= 1)
+        parserVersion = ParserVersion::v2_1;
+    else if (header.version_portMajor == 4 && header.version_portMinor <= 1)
+        parserVersion = ParserVersion::v4_1;
     else
         parserVersion = ParserVersion::unknown;
 
@@ -387,7 +390,7 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     }
 
     // minimum length available?
-    if (data.size() < 8)
+    if ((data.size() < 8) || ((parserVersion == ParserVersion::v4_1) && (data.size() < 24)))
     {
         ROS_ERROR("target list header not received. dropping target list.");
         return;
@@ -397,6 +400,7 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     float cycleTime = readFloat32(data, 0);
     uint16_t nrOfTargets = readUint16(data, 4);
     radar_msgs::Coverage coverage;
+    unsigned int sizePortHeader = 8;  // depends on interface version
 
     if (parserVersion == ParserVersion::v1_0)
     {
@@ -437,6 +441,35 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
         else
             coverage.value = radar_msgs::Coverage::UNKNOWN;
     }
+    else if (parserVersion == ParserVersion::v4_1)
+    {
+        uint8_t acqSweep = readUint8(data, 7);
+        uint8_t acqCF = readUint8(data, 8);
+        uint64_t acquisitionStart = readUint64(data, 16); // NTP time in [2^-32 seconds]
+        DEBUG("got %u detections. cycle time = %f. acqSweep = %u. acqCF = %u. acquisitionStart = %lu.", nrOfTargets, acqSweep, acqCF, acquisitionStart);
+
+        switch(acqSweep)
+        {
+            // warning: documentation version 2026-02-19 inconsistent, p. 27 vs p. 20
+            case 0:
+                coverage.value = radar_msgs::Coverage::LONGRANGE;
+                break;
+
+            case 1:
+                coverage.value = radar_msgs::Coverage::MIDRANGE;
+                break;
+
+            case 2:
+                coverage.value = radar_msgs::Coverage::SHORTRANGE;
+                break;
+
+            default:
+                coverage.value = radar_msgs::Coverage::LONGRANGE;
+                break;
+        }
+
+        sizePortHeader = 24;
+    }
 
     // check number of targets
     if (nrOfTargets > 110)
@@ -446,14 +479,14 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     }
 
     // check port body data size (port brutto)
-    if (data.size() < 8 + 56*nrOfTargets)
+    if (data.size() < sizePortHeader + 56*nrOfTargets)
     {
         ROS_ERROR("portData size %lu smaller than required data size (8 + 56 * %u). dropping target list.", data.size(), nrOfTargets);
         return;
     }
 
     // check actual port size (port netto)
-    if (header.size != 24 + 8 + 56*nrOfTargets)
+    if (header.size != 24 + sizePortHeader + 56*nrOfTargets)
     {
         ROS_ERROR("port size %i mismatches announced size (24 + 8 + 56 * %i). dropping target list.", header.size, nrOfTargets);
         return;
@@ -469,19 +502,19 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     {
         radar_msgs::Detection detection;
         detection.range.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.range.value = readFloat32(data, 8 + i*56 + 0);
+        detection.range.value = readFloat32(data, sizePortHeader + i*56 + 0);
         detection.radial_speed.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.radial_speed.value = readFloat32(data, 8 + i*56 + 4);
+        detection.radial_speed.value = readFloat32(data, sizePortHeader + i*56 + 4);
         detection.azimuth.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.azimuth.value = readFloat32(data, 8 + i*56 + 8);
+        detection.azimuth.value = readFloat32(data, sizePortHeader + i*56 + 8);
         detection.elevation.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.elevation.value = readFloat32(data, 8 + i*56 + 12);
+        detection.elevation.value = readFloat32(data, sizePortHeader + i*56 + 12);
         detection.rcs.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.rcs.value = readFloat32(data, 8 + i*56 + 32);
+        detection.rcs.value = readFloat32(data, sizePortHeader + i*56 + 32);
         detection.power.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.power.value = readFloat32(data, 8 + i*56 + 44);
+        detection.power.value = readFloat32(data, sizePortHeader + i*56 + 44);
         detection.noise.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.noise.value = readFloat32(data, 8 + i*56 + 48);
+        detection.noise.value = readFloat32(data, sizePortHeader + i*56 + 48);
         detection.coverage.value = coverage.value;
 
         record.detections.push_back(detection);
