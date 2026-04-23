@@ -10,6 +10,7 @@
 #include <smartmicro_driver/Sensor.h>
 #include <QElapsedTimer>
 #include <QMap>
+#include <QList>
 #include <math.h>
 
 
@@ -309,11 +310,38 @@ private:
     int getSensorIdx(int ip);
     static bool isDrvegrd(quint8 radar_type);
     void requestInstructions(quint8 ip, SensorParameters &parameters);
+    void enqueuePollingRequest(quint8 ip, SensorParameters const& parameters);
+    void processInstructionQueue();
+    QString makeRequestKey(quint8 ip, SensorParameters const& parameters) const;
+    void markBlockRequestSent(quint8 ip, SensorParameters const& parameters);
+    bool isInFlightRequest(quint8 ip, SensorParameters const& parameters) const;
     bool compareBlocks(const std::vector<smartmicro_driver::Instruction>& in, SensorParameters const& parameter);
+    bool compareParameterBlocks(SensorParameters const& lhs, SensorParameters const& rhs) const;
     void writeBlock(const std::vector<smartmicro_driver::Instruction>& in, SensorParameters &parameter);
     int blockCounter{0};
     static QString parameterValueToString(SensorParameter const& parameter);
     static QString intsToReadableQString(signed long long ints);
+
+    struct QueuedRequest
+    {
+        quint8 ip;
+        SensorParameters parameters;
+        QString key;
+        bool high_priority{false};
+    };
+
+    struct InFlightRequest
+    {
+        QueuedRequest request;
+        QElapsedTimer since;
+    };
+
+    QList<QueuedRequest> requestQueue_;
+    QMap<quint8, InFlightRequest> inFlightRequests_;
+    static constexpr int requestTimeoutMs_{800};
+    static constexpr int requestSendSpacingMs_{80};
+    static constexpr int staleDisplayTimeoutMs_{4000};
+    QElapsedTimer lastSendTime_;
 
 private slots:
     // Qt Slots

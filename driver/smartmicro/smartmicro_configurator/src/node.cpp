@@ -95,6 +95,10 @@ void Node::rosCallback_sensors(const smartmicro_driver::Sensors::ConstPtr &msg)
 
 void Node::rosCallback_instructions(const smartmicro_driver::Instructions::ConstPtr &msg)
 {
+    auto inFlightIt = inFlightRequests_.find(msg->destination);
+    if (inFlightIt != inFlightRequests_.end() && compareBlocks(msg->instructions, inFlightIt->request.parameters))
+        inFlightRequests_.erase(inFlightIt);
+
     int idx = getSensorIdx(msg->destination);
     if (idx < 0)
         return;
@@ -182,24 +186,151 @@ void Node::requestInstructions(quint8 ip, Node::SensorParameters &parameters)
     if (parameters.size() > 10 || parameters.size() == 0)
         return;
 
-    smartmicro_driver::Instructions instructions;
-    instructions.destination = ip;
+    QueuedRequest request;
+    request.ip = ip;
+    request.parameters = parameters;
+    request.key = makeRequestKey(ip, parameters);
+    request.high_priority = true;
 
-    instructions.instructions.reserve(parameters.size());
-    for (int i = 0; i < parameters.size(); i += 1)
+    for (auto it = requestQueue_.begin(); it != requestQueue_.end(); ++it)
+    {
+        if (it->key == request.key)
+        {
+            *it = request;
+            processInstructionQueue();
+            return;
+        }
+    }
+
+    requestQueue_.push_front(request);
+    processInstructionQueue();
+}
+
+void Node::enqueuePollingRequest(quint8 ip, const Node::SensorParameters &parameters)
+{
+    if (parameters.size() > 10 || parameters.size() == 0)
+        return;
+
+    if (isInFlightRequest(ip, parameters))
+        return;
+
+    QueuedRequest request;
+    request.ip = ip;
+    request.parameters = parameters;
+    request.key = makeRequestKey(ip, parameters);
+
+    for (auto const& queued : requestQueue_)
+        if (queued.key == request.key)
+            return;
+
+    requestQueue_.push_back(request);
+}
+
+QString Node::makeRequestKey(quint8 ip, const Node::SensorParameters &parameters) const
+{
+    QString key = QString::number(ip);
+    for (auto const& parameter : parameters)
+    {
+        key += QString("|%1:%2:%3:%4:%5")
+                .arg(parameter.request)
+                .arg(parameter.section)
+                .arg(parameter.id)
+                .arg(parameter.datatype)
+                .arg(parameter.signature);
+    }
+    return key;
+}
+
+void Node::markBlockRequestSent(quint8 ip, const Node::SensorParameters &parameters)
+{
+    int const idx = getSensorIdx(ip);
+    if (idx < 0)
+        return;
+
+    auto& sensor = sensors[idx];
+
+    if (compareParameterBlocks(parameters, sensor.block2012.parameters))
+        sensor.block2012.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block7012.parameters))
+        sensor.block7012.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block2010_meas.parameters))
+        sensor.block2010_meas.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block7010_meas.parameters))
+        sensor.block7010_meas.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block2010_meas_132.parameters))
+        sensor.block2010_meas_132.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block7010_modes.parameters))
+        sensor.block7010_modes.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block2010_meas_153.parameters))
+        sensor.block2010_meas_153.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block2010_output.parameters))
+        sensor.block2010_output.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block7010_output.parameters))
+        sensor.block7010_output.last_request.restart();
+    else if (compareParameterBlocks(parameters, sensor.block7010_ip.parameters))
+        sensor.block7010_ip.last_request.restart();
+}
+
+bool Node::isInFlightRequest(quint8 ip, const Node::SensorParameters &parameters) const
+{
+    auto it = inFlightRequests_.find(ip);
+    return (it != inFlightRequests_.end()) && compareParameterBlocks(parameters, it->request.parameters);
+}
+
+void Node::processInstructionQueue()
+{
+    for (auto it = inFlightRequests_.begin(); it != inFlightRequests_.end(); )
+    {
+        if (it->since.isValid() && it->since.elapsed() > requestTimeoutMs_)
+            it = inFlightRequests_.erase(it);
+        else
+            ++it;
+    }
+
+    if (requestQueue_.isEmpty())
+        return;
+
+    if (lastSendTime_.isValid() && lastSendTime_.elapsed() < requestSendSpacingMs_)
+        return;
+
+    int requestIndex = -1;
+    for (int i = 0; i < requestQueue_.size(); i += 1)
+    {
+        if (!inFlightRequests_.contains(requestQueue_.at(i).ip))
+        {
+            requestIndex = i;
+            break;
+        }
+    }
+
+    if (requestIndex < 0)
+        return;
+
+    smartmicro_driver::Instructions instructions;
+    auto request = requestQueue_.takeAt(requestIndex);
+    instructions.destination = request.ip;
+
+    instructions.instructions.reserve(request.parameters.size());
+    for (int i = 0; i < request.parameters.size(); i += 1)
     {
         smartmicro_driver::Instruction in;
-        in.request = parameters.at(i).request;
+        in.request = request.parameters.at(i).request;
         in.response = smartmicro_driver::Instruction::RESPONSE_UNSET;
-        in.section = parameters.at(i).section;
-        in.id = parameters.at(i).id;
-        in.datatype = parameters.at(i).datatype;
-        in.signature = parameters.at(i).signature;
-        in.value = parameters.at(i).value;  // only needed when sending values
+        in.section = request.parameters.at(i).section;
+        in.id = request.parameters.at(i).id;
+        in.datatype = request.parameters.at(i).datatype;
+        in.signature = request.parameters.at(i).signature;
+        in.value = request.parameters.at(i).value;  // only needed when sending values
         instructions.instructions.push_back(in);
     }
 
     publisher_instructionsRequest.publish(instructions);
+    lastSendTime_.restart();
+    markBlockRequestSent(request.ip, request.parameters);
+    InFlightRequest inFlightRequest;
+    inFlightRequest.request = request;
+    inFlightRequest.since.restart();
+    inFlightRequests_[request.ip] = inFlightRequest;
 }
 
 bool Node::compareBlocks(const std::vector<smartmicro_driver::Instruction>& in, const Node::SensorParameters &parameter)
@@ -222,6 +353,28 @@ bool Node::compareBlocks(const std::vector<smartmicro_driver::Instruction>& in, 
             return false;
 
         if (in.at(i).signature != parameter.at(i).signature)
+            return false;
+    }
+
+    return true;
+}
+
+bool Node::compareParameterBlocks(const Node::SensorParameters &lhs, const Node::SensorParameters &rhs) const
+{
+    if (lhs.size() != rhs.size())
+        return false;
+
+    for (int i = 0; i < lhs.size(); i += 1)
+    {
+        if (lhs.at(i).request != rhs.at(i).request)
+            return false;
+        if (lhs.at(i).section != rhs.at(i).section)
+            return false;
+        if (lhs.at(i).id != rhs.at(i).id)
+            return false;
+        if (lhs.at(i).datatype != rhs.at(i).datatype)
+            return false;
+        if (lhs.at(i).signature != rhs.at(i).signature)
             return false;
     }
 
@@ -281,65 +434,37 @@ void Node::slotTimer()
         bool const drvegrd = isDrvegrd(s.radar_type);
 
         if (!drvegrd && (blockCounter == 0) && ((!s.block2012.last_request.isValid()) || (s.block2012.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block2012.parameters);
-            s.block2012.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block2012.parameters);
 
         if (drvegrd && (blockCounter == 0) && ((!s.block7012.last_request.isValid()) || (s.block7012.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block7012.parameters);
-            s.block7012.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block7012.parameters);
 
         if (!drvegrd && (blockCounter == 1) && ((!s.block2010_meas.last_request.isValid()) || (s.block2010_meas.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block2010_meas.parameters);
-            s.block2010_meas.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block2010_meas.parameters);
 
         if (drvegrd && (blockCounter == 1) && ((!s.block7010_meas.last_request.isValid()) || (s.block7010_meas.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block7010_meas.parameters);
-            s.block7010_meas.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block7010_meas.parameters);
 
         if (!drvegrd && (blockCounter == 2) && ((!s.block2010_meas_132.last_request.isValid()) || (s.block2010_meas_132.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block2010_meas_132.parameters);
-            s.block2010_meas_132.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block2010_meas_132.parameters);
 
         if (drvegrd && (blockCounter == 2) && ((!s.block7010_modes.last_request.isValid()) || (s.block7010_modes.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block7010_modes.parameters);
-            s.block7010_modes.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block7010_modes.parameters);
 
         if (!drvegrd && (blockCounter == 3) && ((!s.block2010_meas_153.last_request.isValid()) || (s.block2010_meas_153.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block2010_meas_153.parameters);
-            s.block2010_meas_153.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block2010_meas_153.parameters);
 
         if (!drvegrd && (blockCounter == 4) && ((!s.block2010_output.last_request.isValid()) || (s.block2010_output.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block2010_output.parameters);
-            s.block2010_output.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block2010_output.parameters);
 
         if (drvegrd && (blockCounter == 4) && ((!s.block7010_output.last_request.isValid()) || (s.block7010_output.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block7010_output.parameters);
-            s.block7010_output.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block7010_output.parameters);
 
         if (drvegrd && (blockCounter == 5) && ((!s.block7010_ip.last_request.isValid()) || (s.block7010_ip.last_request.elapsed() > 1000)))
-        {
-            requestInstructions(s.ip, s.block7010_ip.parameters);
-            s.block7010_ip.last_request.restart();
-        }
+            enqueuePollingRequest(s.ip, s.block7010_ip.parameters);
     }
+
+    processInstructionQueue();
 
     refreshGui();
 }
@@ -414,7 +539,7 @@ void Node::updateGuiBlock(int sensor, const Node::SensorParameters &parameters, 
     QBrush br;
     if (!timer.isValid())
         br = QBrush(QColor(100,100,100));
-    else if (timer.elapsed() > 2000)
+    else if (timer.elapsed() > staleDisplayTimeoutMs_)
         br =  QBrush(QColor("orange"));
     else
         br = clearBrushOfTableWidget;
