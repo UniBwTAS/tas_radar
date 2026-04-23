@@ -4,6 +4,7 @@ uint16 section
 uint16 id
 uint8 datatype
 uint8 dim_count
+uint32 signature
 float64 value   # use for both integer and float32 values. float64's mantissa is precise enough to store an [u]int32; any integer will be accurately represented.
 
 uint8 REQUEST_PARAMETER_SET = 1

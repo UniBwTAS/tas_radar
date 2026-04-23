@@ -17,6 +17,8 @@ add_message_files(
    FILES
    Instruction.msg
    Instructions.msg
+   Sensor.msg
+   Sensors.msg
 )
 
 generate_messages(
@@ -25,7 +27,7 @@ generate_messages(
 )
 
 catkin_package(
-  CATKIN_DEPENDS std_msgs radar_msgs
+  CATKIN_DEPENDS std_msgs radar_msgs message_runtime
 )
 
 include_directories(

@@ -9,9 +9,11 @@ Node::Node(ros::NodeHandle& node_handle) : ros_handle_(node_handle)
 {
     /// Parameter
     // Topics
-    node_handle.param<std::string>("topic_ethernetInput", configuration_.topic_ethernetInput, "ethernet/bus_to_host");
+    node_handle.param<std::string>("topic_ethernetMeasurementsInput", configuration_.topic_ethernetMeasurementsInput, "ethernet_measurements/bus_to_host");
+    node_handle.param<std::string>("topic_ethernetAliveInput", configuration_.topic_ethernetAliveInput, "ethernet_alive/bus_to_host");
     node_handle.param<std::string>("topic_ethernetOutput", configuration_.topic_ethernetOutput, "ethernet/host_to_bus");
     node_handle.param<std::string>("topic_detectionsOutput", configuration_.topic_detectionsOutput, "detections");
+    node_handle.param<std::string>("topic_sensorsOutput", configuration_.topic_sensorsOutput, "sensors");
 
     // instructions/request, instructions/response
     node_handle.param<std::string>("topic_instructionsRequest", configuration_.topic_instructionsRequest, "instructions/request");
@@ -24,11 +26,13 @@ Node::Node(ros::NodeHandle& node_handle) : ros_handle_(node_handle)
     node_handle.param<double>("timestamp_correction", configuration_.timestamp_correction, 0);
 
     /// Subscribing & Publishing
-    subscriber_ethernet_ = ros_handle_.subscribe(configuration_.topic_ethernetInput, 100, &Node::rosCallback_ethernet, this, ros::TransportHints().tcpNoDelay());
+    subscriber_ethernet_measurements_ = ros_handle_.subscribe(configuration_.topic_ethernetMeasurementsInput, 100, &Node::rosCallback_ethernetMeasurements, this, ros::TransportHints().tcpNoDelay());
+    subscriber_ethernet_alive_ = ros_handle_.subscribe(configuration_.topic_ethernetAliveInput, 100, &Node::rosCallback_ethernetAlive, this, ros::TransportHints().tcpNoDelay());
     publisher_ethernet_ = ros_handle_.advertise<ethernet_msgs::Packet>(configuration_.topic_ethernetOutput, 100);
     publisher_radarDetections_ = ros_handle_.advertise<radar_msgs::DetectionRecord>(configuration_.topic_detectionsOutput, 100);
     subscriber_instructions_ = ros_handle_.subscribe(configuration_.topic_instructionsRequest, 100, &Node::rosCallback_instructions, this);
     publisher_instructions_ = ros_handle_.advertise<smartmicro_driver::Instructions>(configuration_.topic_instructionsResponse, 100);
+    publisher_sensors_ = ros_handle_.advertise<smartmicro_driver::Sensors>(configuration_.topic_sensorsOutput, 1, true);
 
     /// Initialize buffer
     flush();
@@ -39,13 +43,23 @@ Node::~Node()
 
 }
 
-void Node::rosCallback_ethernet(const ethernet_msgs::Packet::ConstPtr& msg)
+void Node::rosCallback_ethernetMeasurements(const ethernet_msgs::Packet::ConstPtr& msg)
 {
     PacketMeta meta;
     meta.time = msg->header.stamp;
     meta.ip = ethernet_msgs::nativeIp4ByArray(msg->sender_ip);
 
     deserialize_smsTransport(meta, msg->payload);
+}
+
+void Node::rosCallback_ethernetAlive(const ethernet_msgs::Packet::ConstPtr& msg)
+{
+    PacketMeta meta;
+    meta.time = msg->header.stamp;
+    meta.ip = ethernet_msgs::nativeIp4ByArray(msg->sender_ip);
+
+    if (updateSensorProfileFromAlive(meta.ip))
+        publishSensorProfiles(meta.time);
 }
 
 void Node::rosCallback_instructions(const smartmicro_driver::Instructions::ConstPtr &msg)
@@ -60,6 +74,86 @@ void Node::rosCallback_instructions(const smartmicro_driver::Instructions::Const
 void Node::flush()
 {
     pool.clear();
+}
+
+bool Node::updateSensorProfileFromAlive(uint32_t ip)
+{
+    auto& profile = sensor_profiles_[ip];
+    bool changed{false};
+
+    if (!profile.alive_seen)
+    {
+        profile.alive_seen = true;
+        changed = true;
+    }
+
+    if (profile.radar_type != smartmicro_driver::Sensor::RADAR_TYPE_DRVEGRD)
+    {
+        if (profile.radar_type != smartmicro_driver::Sensor::RADAR_TYPE_UNKNOWN)
+            ROS_WARN("sensor profile update for .%u: alive service indicates DRVEGRD, replacing previous type %u.", ip & 0xFF, profile.radar_type);
+        profile.radar_type = smartmicro_driver::Sensor::RADAR_TYPE_DRVEGRD;
+        changed = true;
+    }
+
+    return changed;
+}
+
+bool Node::updateSensorProfileFromTargetList(uint32_t ip, uint16_t version_major, uint16_t version_minor)
+{
+    auto& profile = sensor_profiles_[ip];
+    bool changed{false};
+    uint8_t const inferred_type =
+            (version_major >= 4) ? smartmicro_driver::Sensor::RADAR_TYPE_DRVEGRD : smartmicro_driver::Sensor::RADAR_TYPE_UMRR;
+
+    if (profile.target_list_port_version_major != version_major)
+    {
+        profile.target_list_port_version_major = version_major;
+        changed = true;
+    }
+
+    if (profile.target_list_port_version_minor != version_minor)
+    {
+        profile.target_list_port_version_minor = version_minor;
+        changed = true;
+    }
+
+    if (profile.radar_type != inferred_type)
+    {
+        if (profile.radar_type != smartmicro_driver::Sensor::RADAR_TYPE_UNKNOWN)
+            ROS_WARN("sensor profile update for .%u: target list version %u.%u indicates type %u, replacing previous type %u.",
+                     ip & 0xFF, version_major, version_minor, inferred_type, profile.radar_type);
+        profile.radar_type = inferred_type;
+        changed = true;
+    }
+
+    return changed;
+}
+
+void Node::publishSensorProfiles(ros::Time const& stamp) const
+{
+    smartmicro_driver::Sensors sensors;
+    sensors.header.stamp = stamp;
+    sensors.header.frame_id = configuration_.frame_sensor;
+    sensors.sensors.reserve(sensor_profiles_.size());
+
+    for (auto const& entry : sensor_profiles_)
+    {
+        smartmicro_driver::Sensor sensor;
+        sensor.ip = static_cast<uint8_t>(entry.first & 0xFF);
+        sensor.radar_type = entry.second.radar_type;
+        sensors.sensors.push_back(sensor);
+    }
+
+    publisher_sensors_.publish(sensors);
+}
+
+uint8_t Node::getSensorRadarType(uint32_t ip) const
+{
+    auto it = sensor_profiles_.find(ip);
+    if (it == sensor_profiles_.end())
+        return smartmicro_driver::Sensor::RADAR_TYPE_UNKNOWN;
+
+    return it->second.radar_type;
 }
 
 void Node::deserialize_smsTransport(Node::PacketMeta const& meta, const std::vector<uint8_t> &data)
@@ -322,7 +416,8 @@ void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> cons
     // check port header version compatibility
     const int version_headerMajor = 2;
     const int version_headerMinor = 2;
-    const int endianess = 1;
+    const int endianess_big = 1;
+    const int endianess_little = 2;
 
     if (header.version_headerMajor != version_headerMajor || header.version_headerMinor > version_headerMinor)
     {
@@ -330,9 +425,15 @@ void Node::deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> cons
         return;
     }
 
-    if (header.endianess != endianess)
+    if (header.endianess != endianess_big && header.endianess != endianess_little)
     {
-        ROS_ERROR("desired endianess (%i) not supported. dropping port.", header.endianess);
+        ROS_ERROR("port identifier %u with port version %u.%u and header version %u.%u uses unsupported endianess %u. dropping port.",
+                  header.identifier,
+                  header.version_portMajor,
+                  header.version_portMinor,
+                  header.version_headerMajor,
+                  header.version_headerMinor,
+                  header.endianess);
         return;
     }
 
@@ -389,6 +490,9 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
         return;
     }
 
+    if (updateSensorProfileFromTargetList(meta.ip, header.version_portMajor, header.version_portMinor))
+        publishSensorProfiles(meta.time);
+
     // minimum length available?
     if ((data.size() < 8) || ((parserVersion == ParserVersion::v4_1) && (data.size() < 24)))
     {
@@ -397,8 +501,8 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     }
 
     // read target list header
-    float cycleTime = readFloat32(data, 0);
-    uint16_t nrOfTargets = readUint16(data, 4);
+    float cycleTime = readFloat32Body(data, 0, header.endianess);
+    uint16_t nrOfTargets = readUint16Body(data, 4, header.endianess);
     radar_msgs::Coverage coverage;
     unsigned int sizePortHeader = 8;  // depends on interface version
 
@@ -409,7 +513,7 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     }
     else if (parserVersion == ParserVersion::v2_1)
     {
-        uint16_t acquisitionSetup = readUint16(data, 6);
+        uint16_t acquisitionSetup = readUint16Body(data, 6, header.endianess);
         DEBUG("got %u detections. cycle time = %f. acq = %u.", nrOfTargets, cycleTime, acquisitionSetup);
 
         if (acquisitionSetup & 0b1)
@@ -445,7 +549,7 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     {
         uint8_t acqSweep = readUint8(data, 7);
         uint8_t acqCF = readUint8(data, 8);
-        uint64_t acquisitionStart = readUint64(data, 16); // NTP time in [2^-32 seconds]
+        uint64_t acquisitionStart = readUint64Body(data, 16, header.endianess); // NTP time in [2^-32 seconds]
         DEBUG("got %u detections. cycle time = %f. acqSweep = %u. acqCF = %u. acquisitionStart = %lu.", nrOfTargets, acqSweep, acqCF, acquisitionStart);
 
         switch(acqSweep)
@@ -502,19 +606,19 @@ void Node::deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const
     {
         radar_msgs::Detection detection;
         detection.range.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.range.value = readFloat32(data, sizePortHeader + i*56 + 0);
+        detection.range.value = readFloat32Body(data, sizePortHeader + i*56 + 0, header.endianess);
         detection.radial_speed.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.radial_speed.value = readFloat32(data, sizePortHeader + i*56 + 4);
+        detection.radial_speed.value = readFloat32Body(data, sizePortHeader + i*56 + 4, header.endianess);
         detection.azimuth.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.azimuth.value = readFloat32(data, sizePortHeader + i*56 + 8);
+        detection.azimuth.value = readFloat32Body(data, sizePortHeader + i*56 + 8, header.endianess);
         detection.elevation.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.elevation.value = readFloat32(data, sizePortHeader + i*56 + 12);
+        detection.elevation.value = readFloat32Body(data, sizePortHeader + i*56 + 12, header.endianess);
         detection.rcs.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.rcs.value = readFloat32(data, sizePortHeader + i*56 + 32);
+        detection.rcs.value = readFloat32Body(data, sizePortHeader + i*56 + 32, header.endianess);
         detection.power.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.power.value = readFloat32(data, sizePortHeader + i*56 + 44);
+        detection.power.value = readFloat32Body(data, sizePortHeader + i*56 + 44, header.endianess);
         detection.noise.available = radar_msgs::Measurement::AVAILABLE_VALUE;
-        detection.noise.value = readFloat32(data, sizePortHeader + i*56 + 48);
+        detection.noise.value = readFloat32Body(data, sizePortHeader + i*56 + 48, header.endianess);
         detection.coverage.value = coverage.value;
 
         record.detections.push_back(detection);
@@ -574,33 +678,33 @@ void Node::deserialize_smsInstructions(const PacketMeta &meta, const SmsPortHead
 
         instruction.request     = readUint8 (data, offset +  0);
         instruction.response    = readUint8 (data, offset +  1);
-        instruction.section     = readUint16(data, offset +  2);
-        instruction.id          = readUint16(data, offset +  4);
+        instruction.section     = readUint16Body(data, offset +  2, header.endianess);
+        instruction.id          = readUint16Body(data, offset +  4, header.endianess);
         instruction.datatype    = readUint8 (data, offset +  6);
         instruction.dim_count   = readUint8 (data, offset +  7);
-        uint64_t value_raw      = readUint64(data, offset + 16);
+        instruction.signature   = readUint32Body(data, offset + 12, header.endianess);
         double value_conv;
 
         switch (instruction.datatype)
         {
             case smartmicro_driver::Instruction::DATATYPE_U8:
             case smartmicro_driver::Instruction::DATATYPE_I8:
-                value_conv = value_raw >> 7*8;
+                value_conv = readUint8(data, offset + 16);
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_U16:
             case smartmicro_driver::Instruction::DATATYPE_I16:
-                value_conv = value_raw >> 6*8;
+                value_conv = readUint16Body(data, offset + 16, header.endianess);
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_U32:
             case smartmicro_driver::Instruction::DATATYPE_I32:
-                value_conv = value_raw >> 4*8;
+                value_conv = readUint32Body(data, offset + 16, header.endianess);
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_F32:
             {
-                uint32_t val = value_raw >> 4*8;
+                uint32_t val = readUint32Body(data, offset + 16, header.endianess);
                 value_conv = *((float*) &val);
             }
             break;
@@ -625,34 +729,47 @@ void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<s
     if (instructions.size() > 10)
         return;
 
+    static uint32_t sequenceCounter{0};
+    bool const useDrvegrdRequestFormat = (getSensorRadarType(meta.ip) == smartmicro_driver::Sensor::RADAR_TYPE_DRVEGRD);
+    const uint8_t bodyEndianess = useDrvegrdRequestFormat ? 2 : 1;
     std::vector<uint8_t> instruction_data(8 + 24 * instructions.size(), 0);
 
     writeUint8(instruction_data, 0, static_cast<uint8_t>(instructions.size()));
+    writeUint32Body(instruction_data, 4, ++sequenceCounter, bodyEndianess);
 
     for (size_t i = 0; i < instructions.size(); i += 1)
     {
-        uint64_t value_raw;
+        const unsigned int offset = 8 + i*24;
+
+        writeUint8 (instruction_data, offset +  0, instructions.at(i).request);
+        writeUint8 (instruction_data, offset +  1, instructions.at(i).response);
+        writeUint16Body(instruction_data, offset +  2, instructions.at(i).section, bodyEndianess);
+        writeUint16Body(instruction_data, offset +  4, instructions.at(i).id, bodyEndianess);
+        writeUint8 (instruction_data, offset +  6, instructions.at(i).datatype);
+        writeUint8 (instruction_data, offset +  7, instructions.at(i).dim_count);
+        writeUint32Body(instruction_data, offset + 12, instructions.at(i).signature, bodyEndianess);
+
         switch (instructions.at(i).datatype)
         {
             case smartmicro_driver::Instruction::DATATYPE_U8:
             case smartmicro_driver::Instruction::DATATYPE_I8:
-                value_raw = static_cast<uint64_t>(instructions.at(i).value) << 7*8;
+                writeUint8(instruction_data, offset + 16, static_cast<uint8_t>(instructions.at(i).value));
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_U16:
             case smartmicro_driver::Instruction::DATATYPE_I16:
-                value_raw = static_cast<uint64_t>(instructions.at(i).value) << 6*8;
+                writeUint16Body(instruction_data, offset + 16, static_cast<uint16_t>(instructions.at(i).value), bodyEndianess);
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_U32:
             case smartmicro_driver::Instruction::DATATYPE_I32:
-                value_raw = static_cast<uint64_t>(instructions.at(i).value) << 4*8;
+                writeUint32Body(instruction_data, offset + 16, static_cast<uint32_t>(instructions.at(i).value), bodyEndianess);
             break;
 
             case smartmicro_driver::Instruction::DATATYPE_F32:
             {
                 float val = static_cast<float>(instructions.at(i).value);
-                value_raw = static_cast<uint64_t>( *((uint32_t*) &val) ) << 4*8;
+                writeUint32Body(instruction_data, offset + 16, *((uint32_t*) &val), bodyEndianess);
             }
             break;
 
@@ -661,32 +778,22 @@ void Node::serialize_smsInstructions(const PacketMeta &meta, const std::vector<s
                 return;
             break;
         }
-
-        const unsigned int offset = 8 + i*24;
-
-        writeUint8 (instruction_data, offset +  0, instructions.at(i).request);
-        writeUint8 (instruction_data, offset +  1, instructions.at(i).response);
-        writeUint16(instruction_data, offset +  2, instructions.at(i).section);
-        writeUint16(instruction_data, offset +  4, instructions.at(i).id);
-        writeUint8 (instruction_data, offset +  6, instructions.at(i).datatype);
-        writeUint8 (instruction_data, offset +  7, instructions.at(i).dim_count);
-        writeUint64(instruction_data, offset + 16, value_raw);
     }
 
-    serialize_smsPort(meta, 0, 46, instruction_data);
+    serialize_smsPort(meta, 0, 46, instruction_data, useDrvegrdRequestFormat);
 }
 
-void Node::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data)
+void Node::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data, bool useDrvegrdPortFormat)
 {
     // assemble header
     SmsPortHeader header;
     header.identifier = identifier;
     header.version_portMajor = 2;   // depends on Port type
-    header.version_portMinor = 2;   // depends on Port type
+    header.version_portMinor = (identifier == 46 && useDrvegrdPortFormat) ? 5 : 2;   // depends on Port type
     header.timestamp = timestamp;
     header.size = 24 + data.size();
-    header.endianess = 1;
-    header.index = 1;
+    header.endianess = (identifier == 46 && useDrvegrdPortFormat) ? 2 : 1;
+    header.index = (identifier == 46 && useDrvegrdPortFormat) ? 0 : 1;
     header.version_headerMajor = 2;
     header.version_headerMinor = 0;
 
@@ -695,7 +802,7 @@ void Node::serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_
     writeUint32(port_binary, 0, header.identifier);
     writeUint16(port_binary, 4, header.version_portMajor);
     writeUint16(port_binary, 6, header.version_portMinor);
-    writeUint32(port_binary, 8, header.timestamp);
+    writeUint64(port_binary, 8, header.timestamp);
     writeUint32(port_binary, 16, 24 + data.size());
     writeUint8 (port_binary, 20, header.endianess);
     writeUint8 (port_binary, 21, header.index);
@@ -783,6 +890,50 @@ float Node::readFloat32(const std::vector<uint8_t> &data, unsigned long offset)
     return *((float*) &raw);
 }
 
+uint16_t Node::readUint16Body(const std::vector<uint8_t> &data, unsigned long offset, uint8_t endianess)
+{
+    if (endianess == 2)
+        return
+                ( static_cast<uint16_t>(data.at(offset + 0)) <<  0 ) |
+                ( static_cast<uint16_t>(data.at(offset + 1)) <<  8 ) ;
+
+    return readUint16(data, offset);
+}
+
+uint32_t Node::readUint32Body(const std::vector<uint8_t> &data, unsigned long offset, uint8_t endianess)
+{
+    if (endianess == 2)
+        return
+                ( static_cast<uint32_t>(data.at(offset + 0)) <<  0 ) |
+                ( static_cast<uint32_t>(data.at(offset + 1)) <<  8 ) |
+                ( static_cast<uint32_t>(data.at(offset + 2)) << 16 ) |
+                ( static_cast<uint32_t>(data.at(offset + 3)) << 24 ) ;
+
+    return readUint32(data, offset);
+}
+
+uint64_t Node::readUint64Body(const std::vector<uint8_t> &data, unsigned long offset, uint8_t endianess)
+{
+    if (endianess == 2)
+        return
+                ( static_cast<uint64_t>(data.at(offset + 0)) <<  0 ) |
+                ( static_cast<uint64_t>(data.at(offset + 1)) <<  8 ) |
+                ( static_cast<uint64_t>(data.at(offset + 2)) << 16 ) |
+                ( static_cast<uint64_t>(data.at(offset + 3)) << 24 ) |
+                ( static_cast<uint64_t>(data.at(offset + 4)) << 32 ) |
+                ( static_cast<uint64_t>(data.at(offset + 5)) << 40 ) |
+                ( static_cast<uint64_t>(data.at(offset + 6)) << 48 ) |
+                ( static_cast<uint64_t>(data.at(offset + 7)) << 56 ) ;
+
+    return readUint64(data, offset);
+}
+
+float Node::readFloat32Body(const std::vector<uint8_t> &data, unsigned long offset, uint8_t endianess)
+{
+    uint32_t raw = readUint32Body(data, offset, endianess);
+    return *((float*) &raw);
+}
+
 uint16_t Node::crc16(const std::vector<uint8_t> &data, int start, int length)
 {
     uint8_t i;
@@ -824,4 +975,30 @@ void Node::writeUint64(std::vector<uint8_t> &data, unsigned long offset, uint64_
     data[offset+5]  = (value >> 16) & 0xFF;
     data[offset+6]  = (value >>  8) & 0xFF;
     data[offset+7]  = (value >>  0) & 0xFF;
+}
+
+void Node::writeUint16Body(std::vector<uint8_t> &data, unsigned long offset, uint16_t value, uint8_t endianess)
+{
+    if (endianess == 2)
+    {
+        data[offset]    = (value >>  0) & 0xFF;
+        data[offset+1]  = (value >>  8) & 0xFF;
+        return;
+    }
+
+    writeUint16(data, offset, value);
+}
+
+void Node::writeUint32Body(std::vector<uint8_t> &data, unsigned long offset, uint32_t value, uint8_t endianess)
+{
+    if (endianess == 2)
+    {
+        data[offset]    = (value >>  0) & 0xFF;
+        data[offset+1]  = (value >>  8) & 0xFF;
+        data[offset+2]  = (value >> 16) & 0xFF;
+        data[offset+3]  = (value >> 24) & 0xFF;
+        return;
+    }
+
+    writeUint32(data, offset, value);
 }

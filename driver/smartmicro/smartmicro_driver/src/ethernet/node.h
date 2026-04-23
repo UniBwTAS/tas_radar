@@ -3,6 +3,8 @@
 #include <ros/ros.h>
 #include <ethernet_msgs/Packet.h>
 #include <smartmicro_driver/Instructions.h>
+#include <smartmicro_driver/Sensors.h>
+#include <map>
 
 class Node
 {
@@ -16,15 +18,18 @@ private:
     ros::NodeHandle& ros_handle_;
 
     // ROS Interfaces
-    ros::Subscriber subscriber_ethernet_;
+    ros::Subscriber subscriber_ethernet_measurements_;
+    ros::Subscriber subscriber_ethernet_alive_;
     ros::Publisher  publisher_ethernet_;
     ros::Publisher 	publisher_radarDetections_;
     ros::Subscriber subscriber_instructions_;
     ros::Publisher  publisher_instructions_;
+    ros::Publisher  publisher_sensors_;
 
 private:
     // ROS data reception callbacks
-    void rosCallback_ethernet(const ethernet_msgs::Packet::ConstPtr &msg);
+    void rosCallback_ethernetMeasurements(const ethernet_msgs::Packet::ConstPtr &msg);
+    void rosCallback_ethernetAlive(const ethernet_msgs::Packet::ConstPtr &msg);
     void rosCallback_instructions(const smartmicro_driver::Instructions::ConstPtr &msg);
 
 private:
@@ -32,9 +37,11 @@ private:
     struct
     {
         // ROS topics
-        std::string topic_ethernetInput;
+        std::string topic_ethernetMeasurementsInput;
+        std::string topic_ethernetAliveInput;
         std::string topic_ethernetOutput;
         std::string topic_detectionsOutput;
+        std::string topic_sensorsOutput;
         std::string topic_instructionsRequest;
         std::string topic_instructionsResponse;
         std::string frame_sensor;
@@ -99,6 +106,19 @@ private:
     void flush();
     std::vector<SmsTransport> pool;
 
+    struct SensorProfile
+    {
+        uint8_t radar_type{smartmicro_driver::Sensor::RADAR_TYPE_UNKNOWN};
+        bool alive_seen{false};
+        uint16_t target_list_port_version_major{0};
+        uint16_t target_list_port_version_minor{0};
+    };
+    std::map<uint32_t, SensorProfile> sensor_profiles_;
+    bool updateSensorProfileFromAlive(uint32_t ip);
+    bool updateSensorProfileFromTargetList(uint32_t ip, uint16_t version_major, uint16_t version_minor);
+    void publishSensorProfiles(ros::Time const& stamp) const;
+    uint8_t getSensorRadarType(uint32_t ip) const;
+
 private:
     // processing functions for "SMS Transport Packages"
     void deserialize_smsTransport(PacketMeta const& meta, std::vector<uint8_t> const& data);
@@ -108,7 +128,7 @@ private:
     // processing functions for "SMS Ports"
     void deserialize_smsPort(PacketMeta const& meta, std::vector<uint8_t> const& data);
     void process_smsPort(SmsPort const& port);
-    void serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data);
+    void serialize_smsPort(PacketMeta const& meta, uint64_t timestamp, uint32_t identifier, std::vector<uint8_t> const& data, bool use_drvegrd_port_format = false);
 
     // processing functions for "Target Lists" in "SMS Ports"
     void deserialize_smsTargetList(PacketMeta const& meta, SmsPortHeader const& header, std::vector<uint8_t> const& data);
@@ -124,9 +144,15 @@ private:
     static uint32_t readUint32(std::vector<uint8_t> const& data, unsigned long offset);
     static uint64_t readUint64(std::vector<uint8_t> const& data, unsigned long offset);
     static float readFloat32(std::vector<uint8_t> const& data, unsigned long offset);
+    static uint16_t readUint16Body(std::vector<uint8_t> const& data, unsigned long offset, uint8_t endianess);
+    static uint32_t readUint32Body(std::vector<uint8_t> const& data, unsigned long offset, uint8_t endianess);
+    static uint64_t readUint64Body(std::vector<uint8_t> const& data, unsigned long offset, uint8_t endianess);
+    static float readFloat32Body(std::vector<uint8_t> const& data, unsigned long offset, uint8_t endianess);
     static uint16_t crc16(std::vector<uint8_t> const& data, int start, int length);
     static void writeUint8(std::vector<uint8_t> & data, unsigned long offset, uint8_t value);
     static void writeUint16(std::vector<uint8_t> & data, unsigned long offset, uint16_t value);
     static void writeUint32(std::vector<uint8_t> & data, unsigned long offset, uint32_t value);
     static void writeUint64(std::vector<uint8_t> & data, unsigned long offset, uint64_t value);
+    static void writeUint16Body(std::vector<uint8_t> & data, unsigned long offset, uint16_t value, uint8_t endianess);
+    static void writeUint32Body(std::vector<uint8_t> & data, unsigned long offset, uint32_t value, uint8_t endianess);
 };

@@ -14,10 +14,16 @@ This collection offers the following features:
 - Real-time sensor configurability (Data integration)
 - Graphical configuration tool for multiple sensors in the network
 - Dynamic query of sensors in the sensor's default IP range 192.168.11.x - no manual configuration needed
+- Driver-side publication of available sensors and their detected radar type
 - Message definitions for generic detection-based radar sensors
 - Visualization nodes, which also visualize the radial-speed measurement (opt. ego-motion compensated with buffered time synchronization)
+- Support for the DRVEGRD alive (discovery) service
 
 This collection has been developed since 2020, tested in multiple hardware setups and used in closed-loop applications. It is based on C++, optimized for low CPU usage and direct measurement data access.
+
+The current smartmicro driver/configurator stack supports mixed operation of different smartmicro radar generations in one network:
+- legacy UMRR devices
+- newer DRVEGRD devices
 
 ## Dependencies
 - [librosqt](https://github.com/1r0b1n0/librosqt)

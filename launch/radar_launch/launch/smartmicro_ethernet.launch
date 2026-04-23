@@ -4,26 +4,39 @@
     <arg name="live" default="true" />
 
     <!-- declare further arguments with default values -->
-    <arg name="ns_ethernet_bridge" default="bus/smartmicro/eth_measurements"/>
+    <arg name="ns_ethernet_measurements" default="bus/smartmicro/eth_measurements"/>
+    <arg name="ns_ethernet_alive" default="bus/smartmicro/eth_alive"/>
     <arg name="ns_driver" default="sensor/radar/smartmicro"/>
     <arg name="topic_marker" default="/visualization/sensor/radar/smartmicro/detections"/>
     <arg name="topic_accumulation" default="/visualization/sensor/radar/smartmicro/detections_accumulation"/>
 
     <group ns="$(arg ns_driver)">
-        <!-- ethernet bridge -->
-        <node pkg="ethernet_bridge" type="udp" name="ethernet_bridge" if="$(arg live)">
+        <!-- ethernet bridge: measurements -->
+        <node pkg="ethernet_bridge" type="udp" name="ethernet_bridge_measurements" if="$(arg live)">
             <param name="ethernet_bindAddress" value="0.0.0.0"/>
             <param name="ethernet_bindPort" value="55555"/>
-            <param name="topic_busToHost"       value="/$(arg ns_ethernet_bridge)/bus_to_host" />
-            <param name="topic_hostToBus"       value="/$(arg ns_ethernet_bridge)/host_to_bus" />
-            <param name="topic_event"           value="/$(arg ns_ethernet_bridge)/event" />
+            <param name="topic_busToHost"       value="/$(arg ns_ethernet_measurements)/bus_to_host" />
+            <param name="topic_hostToBus"       value="/$(arg ns_ethernet_measurements)/host_to_bus" />
+            <param name="topic_event"           value="/$(arg ns_ethernet_measurements)/event" />
+        </node>
+
+        <!-- ethernet bridge: alive service -->
+        <node pkg="ethernet_bridge" type="udp" name="ethernet_bridge_alive" if="$(arg live)">
+            <param name="ethernet_bindAddress" value="0.0.0.0"/>
+            <param name="ethernet_multicastGroup" value="239.144.0.0"/>
+            <param name="ethernet_bindPort" value="60000"/>
+            <param name="topic_busToHost"       value="/$(arg ns_ethernet_alive)/bus_to_host" />
+            <param name="topic_hostToBus"       value="/$(arg ns_ethernet_alive)/host_to_bus" />
+            <param name="topic_event"           value="/$(arg ns_ethernet_alive)/event" />
         </node>
 
         <!-- driver -->
         <node pkg="smartmicro_driver" type="ethernet" name="driver">
-            <param name="topic_ethernetInput" value="/$(arg ns_ethernet_bridge)/bus_to_host"/>
-            <param name="topic_ethernetOutput" value="/$(arg ns_ethernet_bridge)/host_to_bus"/>
+            <param name="topic_ethernetMeasurementsInput" value="/$(arg ns_ethernet_measurements)/bus_to_host"/>
+            <param name="topic_ethernetAliveInput" value="/$(arg ns_ethernet_alive)/bus_to_host"/>
+            <param name="topic_ethernetOutput" value="/$(arg ns_ethernet_measurements)/host_to_bus"/>
             <param name="topic_detectionsOutput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_sensorsOutput" value="/$(arg ns_driver)/sensors"/>
             <param name="topic_instructionsRequest" value="/$(arg ns_driver)/instructions/request"/>
             <param name="topic_instructionsResponse" value="/$(arg ns_driver)/instructions/response"/>
             <param name="frame_sensor" value="$(arg ns_driver)"/>
@@ -31,7 +44,7 @@
 
         <!-- smartmicro configuration tool -->
         <node pkg="smartmicro_configurator" type="configurator" name="configurator">
-            <param name="topic_detectionsInput" value="/$(arg ns_driver)/detections"/>
+            <param name="topic_sensorsInput" value="/$(arg ns_driver)/sensors"/>
             <param name="topic_instructionsResponseInput" value="/$(arg ns_driver)/instructions/response"/>
             <param name="topic_instructionsRequestOutput" value="/$(arg ns_driver)/instructions/request"/>
         </node>

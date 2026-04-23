@@ -36,6 +36,21 @@
       </row>
       <row>
        <property name="text">
+        <string>Radar Type</string>
+       </property>
+      </row>
+      <row>
+       <property name="text">
+        <string>Interface Version Major</string>
+       </property>
+      </row>
+      <row>
+       <property name="text">
+        <string>Interface Version Minor</string>
+       </property>
+      </row>
+      <row>
+       <property name="text">
         <string>Software Generation</string>
        </property>
       </row>
@@ -86,12 +101,12 @@
       </row>
       <row>
        <property name="text">
-        <string>Enable Toggle TX Antenna</string>
+        <string>TX Toggle / HIRES</string>
        </property>
       </row>
       <row>
        <property name="text">
-        <string>Enable Angular Separation</string>
+        <string>Angular Separation / Target Validation</string>
        </property>
       </row>
       <row>
@@ -139,6 +154,11 @@
         <string>Output Target List via Eth</string>
        </property>
       </row>
+      <row>
+       <property name="text">
+        <string>IP Source Address</string>
+       </property>
+      </row>
      </widget>
     </item>
     <item>
@@ -177,12 +197,15 @@
            </item>
            <item>
             <spacer name="horizontalSpacer">
+             <property name="sizeType">
+              <enum>QSizePolicy::Fixed</enum>
+             </property>
              <property name="orientation">
               <enum>Qt::Horizontal</enum>
              </property>
              <property name="sizeHint" stdset="0">
               <size>
-               <width>40</width>
+               <width>75</width>
                <height>20</height>
               </size>
              </property>
@@ -190,10 +213,40 @@
            </item>
           </layout>
          </item>
+         <item>
+          <widget class="QLabel" name="label_selectedTypeTitle">
+           <property name="text">
+            <string>Selected sensor type:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_selectedTypeValue">
+           <property name="text">
+            <string>Unknown</string>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">font-weight: 600;</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_selectedType">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
         </layout>
        </item>
        <item>
-        <widget class="QFrame" name="frame">
+        <widget class="QFrame" name="frame_umrr">
          <property name="frameShape">
           <enum>QFrame::StyledPanel</enum>
          </property>
@@ -591,6 +644,239 @@
                  </property>
                  <property name="text">
                   <string>Write Config to Flash</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="frame_drvegrd">
+         <property name="frameShape">
+          <enum>QFrame::StyledPanel</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Raised</enum>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_drvegrd">
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_drvegrd_top">
+            <item>
+             <widget class="QGroupBox" name="groupBox_centerFrequency_drvegrd">
+              <property name="title">
+               <string>Center Frequency</string>
+              </property>
+              <layout class="QGridLayout" name="gridLayout_centerFrequency_drvegrd">
+               <item row="0" column="0">
+                <widget class="QPushButton" name="btn_centerFrequency_0_drvegrd">
+                 <property name="text">
+                  <string>76.125 GHz</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="btn_centerFrequency_1_drvegrd">
+                 <property name="text">
+                  <string>76.365 GHz</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QPushButton" name="btn_centerFrequency_2_drvegrd">
+                 <property name="text">
+                  <string>76.605 GHz</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QPushButton" name="btn_centerFrequency_3_drvegrd">
+                 <property name="text">
+                  <string>76.845 GHz</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_sweep_drvegrd">
+              <property name="title">
+               <string>Frequency Sweep</string>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_sweep_drvegrd">
+               <item>
+                <widget class="QPushButton" name="btn_frequencySweep_short_drvegrd">
+                 <property name="text">
+                  <string>Short Range</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_frequencySweep_medium_drvegrd">
+                 <property name="text">
+                  <string>Medium Range</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_frequencySweep_long_drvegrd">
+                 <property name="text">
+                  <string>Long Range</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_modes_drvegrd">
+              <property name="title">
+               <string>Detection Modes</string>
+              </property>
+              <layout class="QGridLayout" name="gridLayout_modes_drvegrd">
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_hires_drvegrd">
+                 <property name="text">
+                  <string>HIRES</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="btn_hires_on_drvegrd">
+                 <property name="text">
+                  <string>On</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="2">
+                <widget class="QPushButton" name="btn_hires_off_drvegrd">
+                 <property name="text">
+                  <string>Off</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="label_targetValidation_drvegrd">
+                 <property name="text">
+                  <string>Target Validation</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QPushButton" name="btn_targetValidation_on_drvegrd">
+                 <property name="text">
+                  <string>On</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="2">
+                <widget class="QPushButton" name="btn_targetValidation_off_drvegrd">
+                 <property name="text">
+                  <string>Off</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_drvegrd_bottom">
+            <item>
+             <widget class="QGroupBox" name="groupBox_output_drvegrd">
+              <property name="title">
+               <string>Target List Output</string>
+              </property>
+              <layout class="QGridLayout" name="gridLayout_output_drvegrd">
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_outputEth_drvegrd">
+                 <property name="text">
+                  <string>Ethernet</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="btn_outputEth_on_drvegrd">
+                 <property name="text">
+                  <string>On</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="2">
+                <widget class="QPushButton" name="btn_outputEth_off_drvegrd">
+                 <property name="text">
+                  <string>Off</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_ip_drvegrd">
+              <property name="title">
+               <string>IP</string>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_ip_drvegrd">
+               <item>
+                <layout class="QHBoxLayout" name="horizontalLayout_ip_drvegrd">
+                 <item>
+                  <widget class="QLabel" name="label_ip_drvegrd">
+                   <property name="text">
+                    <string>192.168.11.</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QSpinBox" name="ip_value_drvegrd"/>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QPushButton" name="ip_btn_drvegrd">
+                 <property name="text">
+                  <string>Set Sensor IP</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_drvegrd">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_system_drvegrd">
+              <property name="title">
+               <string>System</string>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_system_drvegrd">
+               <item>
+                <widget class="QPushButton" name="flash_btn_drvegrd">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>Apply / Reboot Sensor</string>
                  </property>
                 </widget>
                </item>
