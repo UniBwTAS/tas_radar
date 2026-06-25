@@ -25,17 +25,57 @@ The current smartmicro driver/configurator stack supports mixed operation of dif
 - legacy UMRR devices
 - newer DRVEGRD devices
 
+The repository currently contains the following main packages:
+- `driver/smartmicro/smartmicro_driver`: smartmicro driver for CAN and Ethernet
+- `driver/smartmicro/smartmicro_configurator`: Qt-based smartmicro configuration GUI
+- `messages/radar_msgs`: generic radar detection messages
+- `visualization/radar_marker`: RViz marker visualization
+- `visualization/radar_pointcloud`: accumulated point cloud visualization
+- `launch/radar_launch`: example launch files
+- `documentation`: archived protocol documentation used during development and migration
+
 ## Dependencies
 - [librosqt](https://github.com/1r0b1n0/librosqt)
 - [ethernet_bridge](https://github.com/UniBwTAS/ethernet_bridge) (for BroadR-Reach- or network-based drivers)
+
+Depending on your workspace setup, you may also need the usual ROS Noetic build dependencies for Qt, message generation and visualization.
 
 ## Installation
 - just install dependencies and compile
 - see launch file for example startup
 
+The repository contains a simple demo launch file for a live smartmicro Ethernet setup:
+
+```bash
+roslaunch radar_launch smartmicro_ethernet.launch
+```
+
+The demo launch starts:
+- the measurement Ethernet bridge on UDP port `55555`
+- the DRVEGRD alive bridge on UDP multicast `239.144.0.0:60000`
+- the smartmicro driver
+- the smartmicro configurator
+- marker visualization
+- point cloud visualization
+
+Important ROS topics in the demo setup are:
+- `/sensor/radar/smartmicro/detections`
+- `/sensor/radar/smartmicro/sensors`
+- `/sensor/radar/smartmicro/instructions/request`
+- `/sensor/radar/smartmicro/instructions/response`
+
+The `sensors` topic provides the currently available smartmicro sensors together with their detected radar type and is used by the configurator for sensor discovery and GUI switching between UMRR and DRVEGRD controls.
+
+Notes:
+- The repository currently documents and implements only smartmicro-related drivers.
+- Some newer smartmicro firmware/protocol details were integrated pragmatically from real sensor behavior in addition to vendor documentation.
+- The `documentation` folder contains old and new protocol references that were used during the migration to newer smartmicro devices.
+
 ## Screenshots
 Configuration tool:
+
 ![sms_configuration_tool](https://user-images.githubusercontent.com/2410398/183097935-61f7c74f-e8b6-4fde-8a3f-336cf9ed472f.png)
 
 Detection accumulation with egomotion-compensated radial speed channel:
+
 ![detection_accumulation](https://github.com/UniBwTAS/tas_radar/assets/2410398/dead3581-2660-4b38-85a1-0f3d9de667c8)
