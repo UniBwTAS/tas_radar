@@ -15,6 +15,13 @@ Node::Node(ros::NodeHandle& node_handle) : ros_handle_(node_handle)
     node_handle.param<std::string>("topic_detectionsOutput", configuration_.topic_detectionsOutput, "detections");
     node_handle.param<std::string>("topic_sensorsOutput", configuration_.topic_sensorsOutput, "sensors");
 
+    // legacy topic handling
+    if (!node_handle.hasParam("topic_ethernetMeasurementsInput") && node_handle.hasParam("topic_ethernetInput"))
+    {
+        node_handle.getParam("topic_ethernetInput", configuration_.topic_ethernetMeasurementsInput);
+        ROS_WARN("parameter 'topic_ethernetInput' is deprecated. Please use 'topic_ethernetMeasurementsInput'.");
+    }
+
     // instructions/request, instructions/response
     node_handle.param<std::string>("topic_instructionsRequest", configuration_.topic_instructionsRequest, "instructions/request");
     node_handle.param<std::string>("topic_instructionsResponse", configuration_.topic_instructionsResponse, "instructions/response");
