@@ -48,6 +48,7 @@ void Node::rosCallback_can(const can_msgs::Frame::ConstPtr& msg)
             && (decode_can_0x400_NUMBER_OF_OBJECTS(&buffer_.setup.data, &buffer_.setup.nDetections) >= 0))
         {
             DEBUG("detections %i", buffer_.setup.nDetections);
+            buffer_.setup.timestamp = msg->header.stamp;
             buffer_.setup.available = true;
         }
         else
@@ -104,7 +105,7 @@ void Node::transmitMeasurementIfAvailable()
         return;
 
     // all detections frames received? (assuming increasing send order, thus looping downwards)
-    for (unsigned int iDetection = buffer_.setup.nDetections - 1; iDetection >= 0; iDetection -= 1)
+    for (int iDetection = buffer_.setup.nDetections - 1; iDetection >= 0; iDetection -= 1)
     {
         if(!buffer_.detection[iDetection].available_mode0)
             return;
