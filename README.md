@@ -1,3 +1,6 @@
+> [!CAUTION]
+> **This `ros2` branch is outdated.** The [**`master`** branch](https://github.com/UniBwTAS/tas_radar/tree/master) now supports **both ROS 1 and ROS 2** from a single source tree (selected at build time via `$ROS_VERSION`), across all packages. Please use `master` instead of this branch.
+
 # tas_radar
 Collection of ROS-based drivers, tools, preprocessing algorithms and visualization nodes for radar sensors used at our institute [TAS](https://www.unibw.de/tas).
 
