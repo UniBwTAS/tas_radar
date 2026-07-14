@@ -1,4 +1,6 @@
 # tas_radar
+## _TAS Radar Sensor Driver for ROS (ROS1 and ROS2)_
+
 Collection of ROS-based drivers, tools, preprocessing algorithms and visualization nodes for radar sensors used at our institute [TAS](https://www.unibw.de/tas).
 
 https://user-images.githubusercontent.com/2410398/183098526-23277037-e311-43d7-91c9-82d7f9a25e5f.mp4
@@ -44,10 +46,16 @@ Depending on your workspace setup, you may also need the usual ROS Noetic build 
 - just install dependencies and compile
 - see launch file for example startup
 
+All packages build for both **ROS 1** (catkin) and **ROS 2** (ament), selected at build time via `$ROS_VERSION` from a single source tree; the ROS 1 nodes keep the same node and executable names. The Qt/librosqt configuration GUI (`smartmicro_configurator`) remains ROS 1-only.
+
 The repository contains a simple demo launch file for a live smartmicro Ethernet setup:
 
 ```bash
+# ROS 1
 roslaunch radar_launch smartmicro_ethernet.launch
+
+# ROS 2 (without the ROS 1-only configurator)
+ros2 launch radar_launch smartmicro_ethernet.launch.xml
 ```
 
 The demo launch starts:

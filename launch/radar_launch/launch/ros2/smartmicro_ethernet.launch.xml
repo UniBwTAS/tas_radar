@@ -1,0 +1,68 @@
+<launch>
+    <!-- Launch configuration (live or bag playing) -->
+    <arg name="live" default="true" />
+
+    <!-- declare further arguments with default values -->
+    <arg name="ns_ethernet_measurements" default="bus/smartmicro/eth_measurements"/>
+    <arg name="ns_ethernet_alive" default="bus/smartmicro/eth_alive"/>
+    <arg name="ns_driver" default="sensor/radar/smartmicro"/>
+    <arg name="topic_marker" default="/visualization/sensor/radar/smartmicro/detections"/>
+    <arg name="topic_accumulation" default="/visualization/sensor/radar/smartmicro/detections_accumulation"/>
+
+    <group>
+        <push-ros-namespace namespace="$(var ns_driver)"/>
+
+        <!-- ethernet bridge: measurements -->
+        <node pkg="ethernet_bridge" exec="udp" name="ethernet_bridge_measurements" if="$(var live)">
+            <param name="ethernet_bindAddress" value="0.0.0.0"/>
+            <param name="ethernet_bindPort" value="55555"/>
+            <param name="topic_busToHost"       value="/$(var ns_ethernet_measurements)/bus_to_host" />
+            <param name="topic_hostToBus"       value="/$(var ns_ethernet_measurements)/host_to_bus" />
+            <param name="topic_event"           value="/$(var ns_ethernet_measurements)/event" />
+        </node>
+
+        <!-- ethernet bridge: alive service -->
+        <node pkg="ethernet_bridge" exec="udp" name="ethernet_bridge_alive" if="$(var live)">
+            <param name="ethernet_bindAddress" value="0.0.0.0"/>
+            <param name="ethernet_multicastGroup" value="239.144.0.0"/>
+            <param name="ethernet_bindPort" value="60000"/>
+            <param name="topic_busToHost"       value="/$(var ns_ethernet_alive)/bus_to_host" />
+            <param name="topic_hostToBus"       value="/$(var ns_ethernet_alive)/host_to_bus" />
+            <param name="topic_event"           value="/$(var ns_ethernet_alive)/event" />
+        </node>
+
+        <!-- driver -->
+        <node pkg="smartmicro_driver" exec="ethernet" name="driver">
+            <param name="topic_ethernetMeasurementsInput" value="/$(var ns_ethernet_measurements)/bus_to_host"/>
+            <param name="topic_ethernetAliveInput" value="/$(var ns_ethernet_alive)/bus_to_host"/>
+            <param name="topic_ethernetOutput" value="/$(var ns_ethernet_measurements)/host_to_bus"/>
+            <param name="topic_detectionsOutput" value="/$(var ns_driver)/detections"/>
+            <param name="topic_sensorsOutput" value="/$(var ns_driver)/sensors"/>
+            <param name="topic_instructionsRequest" value="/$(var ns_driver)/instructions/request"/>
+            <param name="topic_instructionsResponse" value="/$(var ns_driver)/instructions/response"/>
+            <param name="frame_sensor" value="$(var ns_driver)"/>
+        </node>
+
+        <!-- smartmicro_configurator is a ROS 1-only Qt/librosqt tool and is omitted under ROS 2 -->
+
+        <!-- visualize detections with ROS markers -->
+        <node pkg="radar_marker" exec="detections" name="detections_to_marker">
+            <param name="topic_detectionsInput" value="/$(var ns_driver)/detections"/>
+            <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
+            <param name="topic_markerOutput" value="$(var topic_marker)"/>
+        </node>
+
+        <!-- visualize detections with Pointcloud2 -->
+        <node pkg="radar_pointcloud" exec="detection_accumulation" name="detections_to_pointcloud">
+            <param name="topic_detectionsInput" value="/$(var ns_driver)/detections"/>
+            <param name="topic_odometryInput" value="/localization/egomotion/odom"/>
+            <param name="topic_accumulationOutput" value="$(var topic_accumulation)"/>
+            <param name="config_accumulationTime" value="10.0"/>
+        </node>
+
+        <!-- simple example TF for the initial sensor IP 192.168.11.11 -->
+        <node pkg="tf2_ros" exec="static_transform_publisher" name="tf_11"
+              args="0 0.0 0.0 0 0 0 base_link $(var ns_driver)/11" />
+    </group>
+
+</launch>

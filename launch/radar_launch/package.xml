@@ -1,10 +1,18 @@
 <?xml version="1.0"?>
-<package format="2">
+<package format="3">
   <name>radar_launch</name>
   <version>2.1.0</version>
-  <description>Launchfiles for radar</description>>
+  <description>Launchfiles for radar</description>
   <author>Philipp Berthold</author>
   <maintainer email="philipp.berthold@unibw.de">phbe</maintainer>
   <license>BSD</license>
+
+  <buildtool_depend condition="$ROS_VERSION == 1">catkin</buildtool_depend>
+  <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake</buildtool_depend>
+
+  <exec_depend>smartmicro_driver</exec_depend>
+  <exec_depend>radar_marker</exec_depend>
+  <exec_depend>radar_pointcloud</exec_depend>
+  <exec_depend>ethernet_bridge</exec_depend>
 
 </package>
